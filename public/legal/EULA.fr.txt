@@ -1,0 +1,40 @@
+SEPELA ERP — CONTRAT DE LICENCE UTILISATEUR FINAL (CLUF)
+
+Copyright (c) SEPELA INC. Tous droits réservés.
+
+IMPORTANT — LISEZ ATTENTIVEMENT : En installant, copiant ou utilisant Sepela ERP (« Logiciel »), vous acceptez d’être lié par les termes du présent contrat. Si vous n’acceptez pas, n’installez pas et n’utilisez pas le Logiciel.
+
+1. OCTROI DE LICENCE
+SEPELA INC vous accorde une licence limitée, non exclusive et non transférable pour installer et utiliser le Logiciel uniquement pour les opérations internes de votre organisation, sous réserve de l’activation et de la licence d’appareil via le portail SEPELA.
+
+2. ACTIVATION ET ABONNEMENT
+L’utilisation des fonctionnalités cloud, des comptes opérateurs et de la synchronisation multi-appareils nécessite une licence commerçant valide et une activation d’appareil délivrée par SEPELA INC ou un partenaire autorisé. Vous êtes responsable de la confidentialité des identifiants du portail.
+
+3. RESTRICTIONS
+Vous ne pouvez pas : (a) désosser, décompiler ou désassembler le Logiciel sauf si la loi l’autorise ; (b) louer, prêter, sous-licencier ou distribuer le Logiciel à des tiers ; (c) supprimer les mentions de propriété ; (d) utiliser le Logiciel pour traiter des données en violation de la loi applicable ; (e) contourner les contrôles de licence, d’activation ou de sécurité.
+
+4. DONNÉES ET CONFIDENTIALITÉ
+Le Logiciel stocke les données métier localement sur votre appareil. Lorsque la synchronisation cloud est activée, les données sont transmises aux serveurs que vous configurez. Vous êtes responsable des sauvegardes, de l’exactitude des enregistrements et de la conformité aux réglementations locales (y compris fiscalité et règles pharmaceutiques le cas échéant).
+
+5. UTILISATION HORS LIGNE
+Le fonctionnement hors ligne dépend d’une authentification en ligne réussie au préalable et d’identifiants mis en cache localement. SEPELA INC ne garantit pas un accès hors ligne ininterrompu.
+
+6. MISES À JOUR
+SEPELA INC peut fournir des mises à jour qui modifient ou remplacent le Logiciel. Des mises à jour peuvent être requises pour maintenir la compatibilité avec le portail ou les normes de sécurité.
+
+7. EXCLUSION DE GARANTIES
+LE LOGICIEL EST FOURNI « EN L’ÉTAT » SANS GARANTIE D’AUCUNE SORTE. SEPELA INC EXCLUT TOUTE GARANTIE, EXPRESSE OU IMPLICITE, Y COMPRIS LA QUALITÉ MARCHANDE ET L’ADÉQUATION À UN USAGE PARTICULIER.
+
+8. LIMITATION DE RESPONSABILITÉ
+DANS LA MESURE MAXIMALE PERMISE PAR LA LOI, SEPELA INC NE SERA PAS RESPONSABLE DES DOMMAGES INDIRECTS, ACCESSOIRES, SPÉCIAUX OU CONSÉCUTIFS, NI DE LA PERTE DE PROFITS, DE DONNÉES OU D’INTERRUPTION D’ACTIVITÉ, DÉCOULANT DE L’UTILISATION DU LOGICIEL.
+
+9. RÉSILIATION
+Cette licence prend fin si vous violez ces conditions ou si votre licence commerçant est révoquée. À la résiliation, vous devez cesser d’utiliser le Logiciel et le désinstaller.
+
+10. DROIT APPLICABLE
+Le présent contrat est régi par les lois de la République démocratique du Congo, sans égard aux règles de conflit de lois, sauf si une loi locale impérative en dispose autrement.
+
+11. CONTACT
+Pour la licence, le support ou l’activation : contactez SEPELA INC via votre distributeur autorisé ou l’administrateur du portail.
+
+En cliquant sur « J’accepte » dans l’installateur ou dans l’application, vous confirmez avoir lu et accepté le présent contrat.

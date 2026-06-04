@@ -1,0 +1,40 @@
+SEPELA ERP — END USER LICENSE AGREEMENT (EULA)
+
+Copyright (c) SEPELA INC. All rights reserved.
+
+IMPORTANT — READ CAREFULLY: By installing, copying, or using Sepela ERP ("Software"), you agree to be bound by the terms of this agreement. If you do not agree, do not install or use the Software.
+
+1. LICENSE GRANT
+SEPELA INC grants you a limited, non-exclusive, non-transferable license to install and use the Software solely for your organization's internal business operations, subject to activation and device licensing through the SEPELA portal.
+
+2. ACTIVATION AND SUBSCRIPTION
+Use of cloud features, operator accounts, and multi-device sync requires a valid merchant license and device activation issued by SEPELA INC or an authorized partner. You are responsible for keeping portal credentials secure.
+
+3. RESTRICTIONS
+You may not: (a) reverse engineer, decompile, or disassemble the Software except as permitted by law; (b) rent, lease, sublicense, or distribute the Software to third parties; (c) remove proprietary notices; (d) use the Software to process data in violation of applicable law; (e) circumvent license, activation, or security controls.
+
+4. DATA AND PRIVACY
+The Software stores business data locally on your device. When cloud sync is enabled, data is transmitted to servers you configure. You are responsible for backups, accuracy of records, and compliance with local regulations (including tax and pharmaceutical rules where applicable).
+
+5. OFFLINE USE
+Offline operation depends on prior successful online authentication and locally cached credentials. SEPELA INC does not guarantee uninterrupted offline access.
+
+6. UPDATES
+SEPELA INC may provide updates that modify or replace the Software. Updates may be required to maintain compatibility with the portal or security standards.
+
+7. DISCLAIMER OF WARRANTIES
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. SEPELA INC DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+
+8. LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, SEPELA INC SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES, OR FOR LOSS OF PROFITS, DATA, OR BUSINESS INTERRUPTION, ARISING FROM USE OF THE SOFTWARE.
+
+9. TERMINATION
+This license ends if you breach these terms or if your merchant license is revoked. Upon termination you must stop using the Software and uninstall it.
+
+10. GOVERNING LAW
+This agreement is governed by the laws of the Democratic Republic of the Congo, without regard to conflict-of-law principles, unless mandatory local law requires otherwise.
+
+11. CONTACT
+For licensing, support, or activation: contact SEPELA INC through your authorized distributor or portal administrator.
+
+By clicking "I Agree" in the installer or in the application, you confirm that you have read and accept this agreement.

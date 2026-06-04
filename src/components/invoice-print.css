@@ -1,0 +1,90 @@
+/**
+ * Invoice print/PDF subtree: hex/sRGB only.
+ * Tailwind v4 defaults use oklch(); html2canvas throws "unsupported color function oklch".
+ */
+.invoice-print-root {
+  background-color: #ffffff;
+  color: #111827;
+}
+
+.invoice-print-root .inv-inner {
+  border: 1px solid #d1d5db;
+}
+
+.invoice-print-root .inv-heading {
+  color: #000000;
+}
+
+.invoice-print-root .inv-muted {
+  color: #374151;
+}
+
+.invoice-print-root .inv-soft {
+  color: #4b5563;
+}
+
+.invoice-print-root .inv-light {
+  color: #6b7280;
+}
+
+.invoice-print-root .inv-table-head {
+  border-top: 1px solid #9ca3af;
+  border-bottom: 1px solid #9ca3af;
+  background-color: #f3f4f6;
+}
+
+.invoice-print-root .inv-row {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.invoice-print-root .inv-total-row {
+  border-top: 1px solid #d1d5db;
+}
+
+.invoice-print-root .inv-refund {
+  background-color: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+}
+
+.invoice-print-root .inv-refund .inv-refund-note {
+  color: #b91c1c;
+  font-weight: 400;
+}
+
+.inv-receipt-banner {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  text-align: center;
+  border: 2px solid #111827;
+}
+
+.inv-banner-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin: 0;
+  color: #111827;
+}
+
+.inv-banner-code {
+  font-size: 9px;
+  margin: 4px 0 0;
+  color: #374151;
+}
+
+.inv-banner-copy {
+  border-color: #2563eb;
+  background-color: #eff6ff;
+}
+
+.inv-banner-training {
+  border-color: #d97706;
+  background-color: #fffbeb;
+}
+
+.inv-banner-proforma {
+  border-color: #7c3aed;
+  background-color: #f5f3ff;
+}

@@ -1,0 +1,62 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #e5e7eb;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.18), transparent 22%),
+    radial-gradient(circle at top right, rgba(124, 58, 237, 0.14), transparent 24%),
+    linear-gradient(180deg, #030712, #020617 28%, #020617 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#root {
+  width: calc(100vw - 16px);
+  max-width: none;
+  margin: 0 auto;
+  padding: 8px 0 12px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+code {
+  font-family: "Cascadia Code", Consolas, monospace;
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.55rem;
+  padding: 0.15rem 0.4rem;
+}
+
+::selection {
+  background: rgba(96, 165, 250, 0.3);
+  color: #f8fafc;
+}
