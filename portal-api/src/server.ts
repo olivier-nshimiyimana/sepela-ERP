@@ -66,6 +66,17 @@ app.setErrorHandler((error, _request, reply) => {
   reply.status(500).send({ ok: false, error: message });
 });
 
+// Root route to handle Render's default root-level platform health checker pings
+app.get("/", async (_request, reply) => {
+  return reply.status(200).send({
+    ok: true,
+    service: "sepela-portal-api",
+    status: "healthy",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Explicit API path health check
 app.get("/health", async () => ({ ok: true, service: "sepela-portal-api" }));
 
 app.register(tenantRoutes);
