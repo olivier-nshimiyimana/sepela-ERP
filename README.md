@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Sepela ERP
 
 Desktop POS and store management built with **Tauri 2**, **React**, and **Tailwind CSS**.
@@ -94,3 +95,7 @@ The desktop app includes a manual **Cloud sync manager** under **Settings** for 
 - **PROFORMA** + SALES only — quote from POS before payment (not saved as a sale)  
 
 Plain-text and PDF/print layouts include the SDC code (e.g. `RT_NORMAL_SALES`).
+=======
+# sepela-ERP
+Sepela Screen Checkout Offline First Desktop Application
+>>>>>>> 01e8fc1ae7bf24f57a05d2a29cdf43de61664bfd
