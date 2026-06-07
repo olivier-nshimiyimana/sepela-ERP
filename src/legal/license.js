@@ -1,7 +1,15 @@
-import eulaText from "../../legal/EULA.txt?raw";
+import eulaTextEn from "../../legal/EULA.txt?raw";
+import eulaTextFr from "../../legal/EULA.fr.txt?raw";
+import { DEFAULT_LOCALE, LOCALES, normalizeLocale } from "../i18n";
 
 export const EULA_VERSION = "1.0.0";
-export { eulaText };
+
+/** @deprecated Use getEulaText(locale) */
+export const eulaText = eulaTextEn;
+
+export function getEulaText(locale = DEFAULT_LOCALE) {
+  return normalizeLocale(locale) === LOCALES.EN ? eulaTextEn : eulaTextFr;
+}
 
 const STORAGE_KEY = "sepela_erp_eula_accepted";
 

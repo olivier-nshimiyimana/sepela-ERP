@@ -68,6 +68,20 @@ export default {
     support: "Problème d'activation ou de licence ? Contactez le support",
     supportCompany: "SEPELA INC",
     supportSuffix: "",
+    offlineNoCache:
+      "Impossible de joindre le portail et aucun compte en cache ne correspond. Connectez-vous une fois en ligne, puis vous pourrez travailler hors ligne.",
+    signedInOffline: "Connecté hors ligne avec les identifiants en cache.",
+    signedInOnline: "Connecté et synchronisé avec le portail.",
+    portalUnreachableOffline: "Portail injoignable — connecté hors ligne avec les identifiants en cache.",
+    cloudSignInFailed: "Échec de la connexion cloud.",
+    invalidApiToken:
+      "Le jeton API du terminal est invalide. Vérifiez que VITE_PORTAL_API_TOKEN dans .env correspond à PORTAL_BEARER_TOKEN du portail, puis redémarrez l'application.",
+    invalidCredentialsPortal:
+      "Nom d'utilisateur ou mot de passe incorrect. Si ce compte a été modifié dans le portail admin, utilisez le mot de passe le plus récent.",
+    activationSupport:
+      "Votre magasin n'est pas activé ou votre licence a expiré. Contactez SEPELA INC pour obtenir de l'aide.",
+    terminalNotConfigured:
+      "Ce terminal n'est pas configuré pour l'accès cloud. Contactez SEPELA INC.",
   },
   header: {
     training: "Formation",
@@ -495,6 +509,12 @@ export default {
     noDrafts: "Aucun brouillon.",
     load: "Charger",
     deleted: "Brouillon supprimé.",
+    cartSummary: "{{lines}} ligne(s) · {{items}} articles · {{total}}",
+    draftSaved: "Brouillon enregistré ({{items}} articles, {{total}}).",
+    draftLoaded: "Brouillon « {{label}} » chargé.",
+    deleteDraftConfirm: "Supprimer le brouillon « {{label}} » ?",
+    draftMeta: "{{items}} articles · {{total}} · {{time}}",
+    deleteDraftAria: "Supprimer {{label}}",
   },
   reports: {
     title: "Rapports de ventes",
@@ -620,5 +640,7 @@ export default {
     userSelfDeactivate: "Vous ne pouvez pas désactiver votre propre compte.",
     userBackupRequired: "La sauvegarde doit contenir au moins un compte utilisateur.",
     operatorsPortalOnly: "Les comptes opérateur sont gérés dans le portail cloud.",
+    noSellableStock: "Aucun stock vendable pour {{name}}.",
+    onlyInStock: "Seulement {{count}} en stock pour {{name}}.",
   },
 };

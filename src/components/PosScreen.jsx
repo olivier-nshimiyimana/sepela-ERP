@@ -33,7 +33,7 @@ export default function PosScreen({
   onProforma,
   onOpenProducts,
 }) {
-  const { t } = useLocale();
+  const { t, tError } = useLocale();
   const [searchTerm, setSearchTerm] = useState("");
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isDraftsOpen, setIsDraftsOpen] = useState(false);
@@ -56,7 +56,7 @@ export default function PosScreen({
       excludeLineId: existing?.id ?? null,
     });
     if (!result.ok) {
-      alert(result.error);
+      alert(tError(result.error));
       return;
     }
     upsertLine(result.line);
@@ -74,7 +74,7 @@ export default function PosScreen({
       excludeLineId: line.id,
     });
     if (!result.ok) {
-      alert(result.error);
+      alert(tError(result.error));
       return;
     }
     upsertLine(result.line);
@@ -96,7 +96,7 @@ export default function PosScreen({
       excludeLineId: line.id,
     });
     if (!result.ok) {
-      alert(result.error);
+      alert(tError(result.error));
       return;
     }
     upsertLine(result.line);
@@ -120,7 +120,7 @@ export default function PosScreen({
       excludeLineId: line.id,
     });
     if (!result.ok) {
-      alert(result.error);
+      alert(tError(result.error));
       if (result.available > 0) {
         const fallback = buildFefoCartLine({
           products,
@@ -159,7 +159,7 @@ export default function PosScreen({
         excludeLineId: line.id,
       });
       if (!result.ok) {
-        alert(result.error);
+        alert(tError(result.error));
         return;
       }
       refreshed.push(result.line);

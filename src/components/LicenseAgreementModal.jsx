@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { eulaText, EULA_VERSION } from "../legal/license";
+import { EULA_VERSION, getEulaText } from "../legal/license";
 import { DEFAULT_LOCALE, LOCALES, translate } from "../i18n";
 
 export default function LicenseAgreementModal({ onAccept }) {
@@ -59,7 +59,7 @@ export default function LicenseAgreementModal({ onAccept }) {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
           <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-300">
-            {eulaText.trim()}
+            {getEulaText(language).trim()}
           </pre>
         </div>
 

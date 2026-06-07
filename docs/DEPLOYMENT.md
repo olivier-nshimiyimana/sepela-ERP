@@ -85,12 +85,42 @@ The bundle identifier is **`com.sepela.erp`**. Changing it later registers as a 
 
 ## Portal + desktop together
 
-For a full deployment you typically also run:
+Production (Render):
 
-- **portal-api** — hosted API + PostgreSQL (Neon)
-- **portal-admin** — merchant / operator / device management
+| Service | URL |
+|---------|-----|
+| Portal API | [https://sepela-erp-api.onrender.com](https://sepela-erp-api.onrender.com) |
+| Portal admin | [https://sepela-erp-portal-admin.onrender.com/](https://sepela-erp-portal-admin.onrender.com/) |
 
-Desktop machines need `VITE_PORTAL_API_URL` and token at **build time** (`.env`) or operators configure **Settings → Cloud sync** after install.
+The desktop app defaults to the production API URL when `VITE_PORTAL_API_URL` is not set (`src/config/portalDefaults.js`). Release builds load **`.env.production`**, which points at the Render API.
+
+### Build desktop for production
+
+1. Set the bearer token (same as `PORTAL_BEARER_TOKEN` on portal-api) in **`.env`** or your CI secret:
+   ```
+   VITE_PORTAL_API_TOKEN=your-portal-bearer-token
+   ```
+2. Sync legal text and build the installer:
+   ```bash
+   npm run legal:sync
+   npm run build:installer
+   ```
+
+Operators can still override API URL/token in **Settings → Cloud sync** after install.
+
+### Login error: « Impossible de joindre le portail… »
+
+This usually means the **desktop app could not complete `/auth/login`** (often CORS), then fell back to offline cache which is **empty on first install**.
+
+1. **Redeploy portal-api** on Render after pulling the latest code (desktop origins `http(s)://tauri.localhost` are allowed in `portal-api/src/server.ts`).
+2. On Render, set `CORS_ORIGINS` to include at least:
+   `https://sepela-erp-portal-admin.onrender.com,http://tauri.localhost,https://tauri.localhost,tauri://localhost`
+3. Create the operator in **portal-admin** and use that username/password on first **online** login.
+4. Confirm the installer was built with `VITE_PORTAL_API_TOKEN` matching Render `PORTAL_BEARER_TOKEN`.
+
+### First launch — license language
+
+On first launch, users pick **Français** (default) or **English** on the license screen. The **full EULA body** switches with that choice (`legal/EULA.fr.txt` vs `legal/EULA.txt`). UI labels (title, checkbox, Continue) use the same language. The choice is saved as the app language when they click **Continue**.
 
 ## Production security (webview hardening)
 

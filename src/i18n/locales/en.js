@@ -68,6 +68,20 @@ export default {
     support: "Activation or license issues? Contact",
     supportCompany: "SEPELA INC",
     supportSuffix: "support.",
+    offlineNoCache:
+      "Cannot reach the portal and no matching cached account was found. Sign in once while online, then you can work offline.",
+    signedInOffline: "Signed in offline using cached credentials.",
+    signedInOnline: "Signed in and synced with the portal.",
+    portalUnreachableOffline: "Portal unreachable — signed in offline with cached credentials.",
+    cloudSignInFailed: "Cloud sign-in failed.",
+    invalidApiToken:
+      "Terminal API token is invalid. Check VITE_PORTAL_API_TOKEN in .env matches portal-api PORTAL_BEARER_TOKEN, then restart the app.",
+    invalidCredentialsPortal:
+      "Invalid username or password. If this account was edited in portal-admin, use the latest password.",
+    activationSupport:
+      "Your store is not activated or your license has expired. Please contact SEPELA INC for assistance.",
+    terminalNotConfigured:
+      "This terminal is not configured for cloud access. Please contact SEPELA INC.",
   },
   header: {
     training: "Training",
@@ -495,6 +509,12 @@ export default {
     noDrafts: "No drafts yet.",
     load: "Load",
     deleted: "Draft deleted.",
+    cartSummary: "{{lines}} line(s) · {{items}} items · {{total}}",
+    draftSaved: "Draft saved ({{items}} items, {{total}}).",
+    draftLoaded: "Loaded \"{{label}}\".",
+    deleteDraftConfirm: "Delete draft \"{{label}}\"?",
+    draftMeta: "{{items}} items · {{total}} · {{time}}",
+    deleteDraftAria: "Delete {{label}}",
   },
   reports: {
     title: "Sales reports",
@@ -620,5 +640,7 @@ export default {
     userSelfDeactivate: "You cannot deactivate your own account.",
     userBackupRequired: "Backup must contain at least one user account.",
     operatorsPortalOnly: "Operator accounts are managed in the cloud portal.",
+    noSellableStock: "No sellable stock available for {{name}}.",
+    onlyInStock: "Only {{count}} in stock for {{name}}.",
   },
 };

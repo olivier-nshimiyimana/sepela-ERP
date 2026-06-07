@@ -11,7 +11,7 @@ export default function UserManageModal({ isOpen, users, currentUserId, onClose,
   const [password, setPassword] = useState("");
   const [role, setRole] = useState(ROLE_ORDER[0]);
   const [error, setError] = useState("");
-  const { t } = useLocale();
+  const { t, tError } = useLocale();
   const roleLabel = (role) => t(`roles.${role}`);
 
   if (!isOpen) return null;
@@ -80,7 +80,7 @@ export default function UserManageModal({ isOpen, users, currentUserId, onClose,
                 </option>
               ))}
             </select>
-            {error && <p className="text-red-400 text-xs">{error}</p>}
+            {error && <p className="text-red-400 text-xs">{tError(error)}</p>}
             <button
               type="submit"
               className="w-full bg-purple-600 hover:bg-purple-700 py-2 rounded text-sm font-bold uppercase"

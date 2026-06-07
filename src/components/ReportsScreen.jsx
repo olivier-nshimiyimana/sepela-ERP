@@ -41,7 +41,7 @@ export default function ReportsScreen({
   cloudConfigured = false,
 }) {
   const currency = useCurrency();
-  const { t, locale } = useLocale();
+  const { t, tError, locale } = useLocale();
   const [period, setPeriod] = useState("daily");
   const [selectedBranchCode, setSelectedBranchCode] = useState("");
   const [branches, setBranches] = useState([]);
@@ -246,7 +246,7 @@ export default function ReportsScreen({
 
       {reportError ? (
         <p className="text-sm text-amber-400 border border-amber-900/40 bg-amber-950/20 rounded-lg px-4 py-3">
-          {reportError}
+          {tError(reportError)}
           {t("reports.showingDeviceOnly")}
         </p>
       ) : null}

@@ -29,14 +29,22 @@ app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, b
   }
 });
 
+/** Sepela ERP desktop (Tauri WebView2) origins — not browser tabs. */
+const DESKTOP_ORIGIN_PATTERNS = [
+  /^https?:\/\/tauri\.localhost(?::\d+)?$/i,
+  /^tauri:\/\/localhost$/i,
+  /^https?:\/\/asset\.localhost(?::\d+)?$/i,
+];
+
+function isAllowedCorsOrigin(origin: string | undefined) {
+  if (!origin) return true;
+  if (config.corsOrigins.includes(origin)) return true;
+  return DESKTOP_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin));
+}
+
 await app.register(cors, {
   origin(origin, callback) {
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
-    const allowed = config.corsOrigins.includes(origin);
-    callback(null, allowed);
+    callback(null, isAllowedCorsOrigin(origin));
   },
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Operator-Session"],

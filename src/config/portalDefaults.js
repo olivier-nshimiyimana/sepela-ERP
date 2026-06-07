@@ -1,5 +1,11 @@
+/** Hosted portal API (Render). Override with VITE_PORTAL_API_URL for local dev. */
+export const PRODUCTION_PORTAL_API_URL = "https://sepela-erp-api.onrender.com";
+
+/** Portal admin UI (merchants, devices, operators). */
+export const PRODUCTION_PORTAL_ADMIN_URL = "https://sepela-erp-portal-admin.onrender.com";
+
 export const DEFAULT_PORTAL_API_URL =
-  String(import.meta.env.VITE_PORTAL_API_URL ?? "").trim() || "http://127.0.0.1:4000";
+  String(import.meta.env.VITE_PORTAL_API_URL ?? "").trim() || PRODUCTION_PORTAL_API_URL;
 
 export const DEFAULT_PORTAL_API_TOKEN = String(import.meta.env.VITE_PORTAL_API_TOKEN ?? "").trim();
 

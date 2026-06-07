@@ -79,6 +79,9 @@ export function translate(key, locale = DEFAULT_LOCALE, params = {}) {
 }
 
 export function appError(key, locale = DEFAULT_LOCALE, params = {}) {
+  if (key.startsWith("login.")) {
+    return translate(key, locale, params);
+  }
   return translate(`errors.${key}`, locale, params);
 }
 
@@ -138,6 +141,20 @@ const ERROR_STRING_MAP = {
   "You cannot deactivate your own account.": "userSelfDeactivate",
   "Backup must contain at least one user account.": "userBackupRequired",
   "Operator accounts are managed in the cloud portal.": "operatorsPortalOnly",
+  "Cannot reach the portal and no matching cached account was found. Sign in once while online, then you can work offline.":
+    "login.offlineNoCache",
+  "Signed in offline using cached credentials.": "login.signedInOffline",
+  "Signed in and synced with the portal.": "login.signedInOnline",
+  "Portal unreachable — signed in offline with cached credentials.": "login.portalUnreachableOffline",
+  "Cloud sign-in failed.": "login.cloudSignInFailed",
+  "Terminal API token is invalid. Check VITE_PORTAL_API_TOKEN in .env matches portal-api PORTAL_BEARER_TOKEN, then restart the app.":
+    "login.invalidApiToken",
+  "Invalid username or password. If this account was edited in portal-admin, use the latest password.":
+    "login.invalidCredentialsPortal",
+  "Your store is not activated or your license has expired. Please contact SEPELA INC for assistance.":
+    "login.activationSupport",
+  "This terminal is not configured for cloud access. Please contact SEPELA INC.":
+    "login.terminalNotConfigured",
 };
 
 const PURCHASE_LINE_PATTERNS = [
@@ -155,6 +172,16 @@ export function translateUserError(error, locale = DEFAULT_LOCALE) {
 
   const key = ERROR_STRING_MAP[text];
   if (key) return appError(key, locale);
+
+  const noStockMatch = text.match(/^No sellable stock available for (.+)\.$/);
+  if (noStockMatch) {
+    return appError("noSellableStock", locale, { name: noStockMatch[1] });
+  }
+
+  const onlyStockMatch = text.match(/^Only (\d+) in stock for (.+)\.$/);
+  if (onlyStockMatch) {
+    return appError("onlyInStock", locale, { count: onlyStockMatch[1], name: onlyStockMatch[2] });
+  }
 
   const leaseMatch = text.match(
     /^This device lease is for "(.+)" but you are signed in as "(.+)"\. Activate the device for the current merchant in Settings\.$/

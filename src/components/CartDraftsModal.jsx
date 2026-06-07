@@ -24,7 +24,7 @@ export default function CartDraftsModal({
   onDraftSaved,
 }) {
   const currency = useCurrency();
-  const { t } = useLocale();
+  const { t, tError } = useLocale();
   const [drafts, setDrafts] = useState([]);
   const [label, setLabel] = useState("");
   const [message, setMessage] = useState("");
@@ -58,14 +58,17 @@ export default function CartDraftsModal({
     });
     if (!result.ok) {
       setMessageTone("error");
-      setMessage(result.error);
+      setMessage(tError(result.error));
       return;
     }
     setLabel("");
     refreshDrafts();
     setMessageTone("success");
     setMessage(
-      `Draft saved (${result.draft.itemCount} items, ${currency.formatPrimary(result.draft.totalUSD)}).`
+      t("drafts.draftSaved", {
+        items: result.draft.itemCount,
+        total: currency.formatPrimary(result.draft.totalUSD),
+      })
     );
     onDraftSaved?.(result.draft);
   };
@@ -73,12 +76,12 @@ export default function CartDraftsModal({
   const handleLoad = (draft) => {
     onLoadDraft(draft.cart);
     setMessageTone("success");
-    setMessage(`Loaded "${draft.label}".`);
+    setMessage(t("drafts.draftLoaded", { label: draft.label }));
     onClose();
   };
 
   const handleDelete = (draft) => {
-    if (!window.confirm(`Delete draft "${draft.label}"?`)) return;
+    if (!window.confirm(t("drafts.deleteDraftConfirm", { label: draft.label }))) return;
     deleteCartDraft(merchantCode, operatorId, draft.id);
     refreshDrafts();
     setMessageTone("success");
@@ -104,7 +107,11 @@ export default function CartDraftsModal({
             <p className="text-sm text-gray-300">
               {cart.length === 0
                 ? t("drafts.cartEmpty")
-                : `${cart.length} line(s) · ${cart.reduce((s, l) => s + l.qty, 0)} items · ${currency.formatPrimary(cartTotal)}`}
+                : t("drafts.cartSummary", {
+                    lines: cart.length,
+                    items: cart.reduce((s, l) => s + l.qty, 0),
+                    total: currency.formatPrimary(cartTotal),
+                  })}
             </p>
             <input
               type="text"
@@ -145,7 +152,11 @@ export default function CartDraftsModal({
                     <Box className="min-w-0">
                       <p className="text-sm font-semibold text-gray-200 truncate">{draft.label}</p>
                       <p className="text-[10px] text-gray-500 mt-1">
-                        {draft.itemCount} items · {currency.formatPrimary(draft.totalUSD)} · {formatDraftTime(draft.savedAt)}
+                        {t("drafts.draftMeta", {
+                          items: draft.itemCount,
+                          total: currency.formatPrimary(draft.totalUSD),
+                          time: formatDraftTime(draft.savedAt),
+                        })}
                       </p>
                     </Box>
                     <Box className="flex gap-1 shrink-0">
@@ -160,7 +171,7 @@ export default function CartDraftsModal({
                         type="button"
                         onClick={() => handleDelete(draft)}
                         className="p-1.5 rounded text-red-400 hover:bg-red-950/40"
-                        aria-label={`Delete ${draft.label}`}
+                        aria-label={t("drafts.deleteDraftAria", { label: draft.label })}
                       >
                         <Trash2 size={14} />
                       </button>

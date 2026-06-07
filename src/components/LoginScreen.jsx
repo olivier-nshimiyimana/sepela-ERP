@@ -6,7 +6,7 @@ import { useLocale } from "../contexts/LocaleContext";
 const Box = "d" + "iv";
 
 export default function LoginScreen({ onLogin, ready }) {
-  const { t } = useLocale();
+  const { t, tError } = useLocale();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -65,7 +65,7 @@ export default function LoginScreen({ onLogin, ready }) {
             />
           </Box>
 
-          {error ? <p className="text-red-400 text-sm">{error}</p> : null}
+          {error ? <p className="text-red-400 text-sm">{tError(error)}</p> : null}
 
           <button
             type="submit"
