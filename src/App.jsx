@@ -367,7 +367,7 @@ export default function App() {
       {showPos && (
         <PosScreen
           user={user}
-          merchantCode={activeTenant?.merchantCode ?? authMerchantCode ?? "local"}
+          merchantCode={user?.merchantCode ?? activeTenant?.merchantCode ?? authMerchantCode ?? "local"}
           sessionSalesUSD={sessionSalesUSD}
           products={products}
           customers={customers}
@@ -389,7 +389,7 @@ export default function App() {
       {showReports && !showPos && (
         <ReportsScreen
           user={user}
-          merchantCode={activeTenant?.merchantCode ?? authMerchantCode ?? "local"}
+          merchantCode={user?.merchantCode ?? activeTenant?.merchantCode ?? authMerchantCode ?? "local"}
           portalApiBaseUrl={portal.apiBaseUrl}
           portalApiToken={portal.apiToken}
           cloudConfigured={cloudConfigured}

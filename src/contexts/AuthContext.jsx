@@ -55,7 +55,8 @@ export function AuthProvider({ children }) {
   const cloudSync = db?.cloudSync ?? {};
   const portal = resolvePortalConnection(cloudSync);
   const merchantCode =
-    String(db?.activeTenant?.merchantCode ?? cloudSync.merchantCode ?? "").trim() || "local";
+    String(user?.merchantCode ?? db?.activeTenant?.merchantCode ?? cloudSync.merchantCode ?? "").trim() ||
+    "local";
 
   const [user, setUser] = useState(loadSession);
   const [operators, setOperators] = useState([]);
@@ -174,6 +175,16 @@ export function AuthProvider({ children }) {
           return { ok: false, error: ACTIVATION_SUPPORT_MESSAGE };
         }
 
+        const account = accountFromCloudLogin(result);
+        const sessionMerchant = account.merchantCode;
+
+        if (db?.applyActiveTenant) {
+          await db.applyActiveTenant({
+            merchantCode: sessionMerchant,
+            branchCode: account.branchCode ?? "",
+          });
+        }
+
         if (db?.syncDeviceBindingFromPortal) {
           const synced = await db.syncDeviceBindingFromPortal(binding, {
             apiBaseUrl: portal.apiBaseUrl,
@@ -183,9 +194,6 @@ export function AuthProvider({ children }) {
             return { ok: false, error: ACTIVATION_SUPPORT_MESSAGE };
           }
         }
-
-        const account = accountFromCloudLogin(result);
-        const sessionMerchant = account.merchantCode;
         await upsertOperatorCache(sessionMerchant, [account]);
 
         try {

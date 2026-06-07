@@ -54,8 +54,11 @@ export default function ReportsScreen({
   const useCloudReports =
     user?.role === ROLES.BOSS && cloudConfigured && !!portalApiBaseUrl && !!portalApiToken;
 
+  /** Owner reports must always scope to the signed-in merchant, not the device's last tenant. */
+  const reportMerchantCode = user?.merchantCode?.trim() || merchantCode;
+
   useEffect(() => {
-    if (!useCloudReports || !merchantCode || merchantCode === "local") {
+    if (!useCloudReports || !reportMerchantCode || reportMerchantCode === "local") {
       setBranches([]);
       return;
     }
@@ -64,7 +67,7 @@ export default function ReportsScreen({
       try {
         const result = await fetchMerchantBranchesOnCloud(
           portalApiBaseUrl,
-          { merchantCode },
+          { merchantCode: reportMerchantCode },
           { apiToken: portalApiToken, sessionToken: getStoredOperatorSession() }
         );
         if (!cancelled) {
@@ -77,10 +80,10 @@ export default function ReportsScreen({
     return () => {
       cancelled = true;
     };
-  }, [useCloudReports, merchantCode, portalApiBaseUrl, portalApiToken]);
+  }, [useCloudReports, reportMerchantCode, portalApiBaseUrl, portalApiToken]);
 
   useEffect(() => {
-    if (!useCloudReports || !merchantCode || merchantCode === "local") {
+    if (!useCloudReports || !reportMerchantCode || reportMerchantCode === "local") {
       setCloudReport(null);
       setReportError("");
       return;
@@ -93,7 +96,7 @@ export default function ReportsScreen({
         const result = await fetchSalesReportOnCloud(
           portalApiBaseUrl,
           {
-            merchantCode,
+            merchantCode: reportMerchantCode,
             branchCode: selectedBranchCode || undefined,
             period,
           },
@@ -114,15 +117,23 @@ export default function ReportsScreen({
     return () => {
       cancelled = true;
     };
-  }, [useCloudReports, merchantCode, portalApiBaseUrl, portalApiToken, selectedBranchCode, period]);
+  }, [useCloudReports, reportMerchantCode, portalApiBaseUrl, portalApiToken, selectedBranchCode, period]);
+
+  const tenantMismatch =
+    !!user?.merchantCode &&
+    !!merchantCode &&
+    user.merchantCode !== merchantCode &&
+    merchantCode !== "local";
 
   const filtered = useMemo(
     () => filterSalesByPeriod(sales, period),
     [sales, period]
   );
   const localStats = useMemo(() => aggregateSales(filtered), [filtered]);
-  const stats = cloudReport?.stats ?? localStats;
-  const recentSales = cloudReport?.recentSales ?? filtered.slice(0, 50);
+  const emptyStats = { count: 0, totalUSD: 0, totalCDF: 0, byMethod: {}, topProducts: [] };
+  const useCloudOnly = useCloudReports || tenantMismatch;
+  const stats = cloudReport?.stats ?? (useCloudOnly ? emptyStats : localStats);
+  const recentSales = cloudReport?.recentSales ?? (useCloudOnly ? [] : filtered.slice(0, 50));
   const branchBreakdown = cloudReport?.byBranch ?? [];
   const dailySummary = useMemo(
     () =>

@@ -134,6 +134,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
       if (operator.merchant_code !== query.merchantCode) {
         throw new Error("FORBIDDEN: Session does not match this merchant.");
       }
+      const merchantCode = operator.merchant_code;
 
       const rows = await client.query(
         `SELECT b.id, b.code, b.name, b.city, b.country_code, b.status,
@@ -144,7 +145,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
          WHERE m.code = $1
          GROUP BY b.id
          ORDER BY b.name ASC`,
-        [query.merchantCode]
+        [merchantCode]
       );
       return rows.rows;
     });
@@ -174,6 +175,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
       if (operator.merchant_code !== query.merchantCode) {
         throw new Error("FORBIDDEN: Session does not match this merchant.");
       }
+      const merchantCode = operator.merchant_code;
 
       const branchFilter = query.branchCode?.trim() || null;
       const rows = await client.query(
@@ -181,7 +183,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
          FROM sync_sales
          WHERE merchant_code = $1
            AND ($2::text IS NULL OR branch_code = $2)`,
-        [query.merchantCode, branchFilter]
+        [merchantCode, branchFilter]
       );
 
       const sales = rows.rows
