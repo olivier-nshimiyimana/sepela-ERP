@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { withTransaction } from "../db.js";
+import { industryProfileSchema } from "../industryProfile.js";
 import { assertPortalToken } from "./auth.js";
 
 const idParam = z.object({
@@ -10,7 +11,21 @@ const idParam = z.object({
 const merchantPatch = z.object({
   name: z.string().min(2).max(120).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+  industryProfile: industryProfileSchema.optional(),
 });
+
+const branchCreate = z
+  .object({
+    merchantId: z.string().uuid().optional(),
+    merchantCode: z.string().min(2).max(40).optional(),
+    code: z.string().min(2).max(40),
+    name: z.string().min(2).max(120),
+    city: z.string().max(120).optional(),
+    countryCode: z.string().max(8).optional(),
+  })
+  .refine((value) => value.merchantId || value.merchantCode, {
+    message: "merchantId or merchantCode is required.",
+  });
 
 const branchPatch = z.object({
   name: z.string().min(2).max(120).optional(),
@@ -56,6 +71,10 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
         fields.push(`status = $${index++}`);
         values.push(body.status);
       }
+      if (body.industryProfile !== undefined) {
+        fields.push(`industry_profile = $${index++}`);
+        values.push(body.industryProfile);
+      }
       if (!fields.length) throw new Error("BAD_REQUEST: No fields to update.");
 
       fields.push("updated_at = NOW()");
@@ -63,13 +82,22 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
 
       const result = await client.query(
         `UPDATE merchants SET ${fields.join(", ")} WHERE id = $${index}
-         RETURNING id, code, name, status`,
+         RETURNING id, code, name, status, industry_profile`,
         values
       );
       return result.rows[0];
     });
 
-    return reply.send({ ok: true, merchant: row });
+    return reply.send({
+      ok: true,
+      merchant: {
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        status: row.status,
+        industryProfile: row.industry_profile,
+      },
+    });
   });
 
   app.delete("/admin/merchants/:id", async (request, reply) => {
@@ -82,6 +110,57 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return reply.send({ ok: true });
+  });
+
+  app.post("/admin/branches", async (request, reply) => {
+    assertPortalToken(request);
+    const body = branchCreate.parse(request.body);
+
+    const row = await withTransaction(async (client) => {
+      const merchantResult = body.merchantId
+        ? await client.query(`SELECT id, code, status FROM merchants WHERE id = $1`, [body.merchantId])
+        : await client.query(`SELECT id, code, status FROM merchants WHERE code = $1`, [body.merchantCode]);
+      const merchant = merchantResult.rows[0];
+      if (!merchant) throw new Error("NOT_FOUND: Merchant not found.");
+      if (merchant.status !== "ACTIVE") {
+        throw new Error("FORBIDDEN: Merchant is deactivated.");
+      }
+
+      const conflict = await client.query(
+        `SELECT id FROM branches WHERE merchant_id = $1 AND code = $2`,
+        [merchant.id, body.code]
+      );
+      if (conflict.rows[0]) {
+        throw new Error("CONFLICT: Branch code already exists for this merchant.");
+      }
+
+      const result = await client.query(
+        `INSERT INTO branches (merchant_id, code, name, city, country_code, status)
+         VALUES ($1, $2, $3, $4, $5, 'ACTIVE')
+         RETURNING id, code, name, city, country_code, status`,
+        [
+          merchant.id,
+          body.code.trim(),
+          body.name.trim(),
+          body.city?.trim() || null,
+          body.countryCode?.trim() || null,
+        ]
+      );
+      return { branch: result.rows[0], merchantCode: merchant.code };
+    });
+
+    return reply.send({
+      ok: true,
+      merchantCode: row.merchantCode,
+      branch: {
+        id: row.branch.id,
+        code: row.branch.code,
+        name: row.branch.name,
+        city: row.branch.city,
+        countryCode: row.branch.country_code,
+        status: row.branch.status,
+      },
+    });
   });
 
   app.patch("/admin/branches/:id", async (request, reply) => {

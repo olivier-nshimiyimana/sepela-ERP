@@ -1,7 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import { Download, Package, Pencil, Plus, ShoppingCart, Trash2, Truck, Upload, X } from "lucide-react";
 import ExpiryBadge from "./ExpiryBadge";
-import { formatExpiryDate } from "../utils/productExpiry";
+import { useCurrency } from "../contexts/CurrencyContext";
+import { useLocale } from "../contexts/LocaleContext";
+import { formatExpiryDate, hasSellableStock } from "../utils/productExpiry";
+import { sellableStockQuantity } from "../utils/inventoryBreakdown";
 import {
   buildProductImportCsv,
   parseProductImportCsv,
@@ -10,13 +13,43 @@ import {
 
 const Box = "d" + "iv";
 
-function fieldsFromProduct(initial) {
+function emptyProductFields() {
   return {
-    name: initial?.name ?? "",
-    lotNumber: initial?.lotNumber ?? "",
-    expirationDate: initial?.expirationDate ?? "",
-    price: initial?.price?.toString() ?? "",
-    stock: initial?.stock?.toString() ?? "0",
+    name: "",
+    lotNumber: "",
+    expirationDate: "",
+    price: "",
+    stock: "",
+    buyUnit: "",
+    buyUnitCost: "",
+    qtyPerUnit: "",
+    itemSizeLabel: "",
+    reorderLevelItems: "",
+  };
+}
+
+function fieldsFromProduct(initial, currency) {
+  if (!initial) return emptyProductFields();
+  return {
+    name: initial.name ?? "",
+    lotNumber: initial.lotNumber ?? "",
+    expirationDate: initial.expirationDate ?? "",
+    price: currency.usdToInput(initial.price),
+    stock: (initial.stockQuantityItems ?? initial.stock)?.toString() ?? "",
+    buyUnit: initial.buyUnit ?? "",
+    buyUnitCost: initial.buyUnitCost ? currency.usdToInput(initial.buyUnitCost) : "",
+    qtyPerUnit: initial.qtyPerUnit?.toString() ?? "",
+    itemSizeLabel: initial.itemSizeLabel ?? "",
+    reorderLevelItems: initial.reorderLevelItems?.toString() ?? "",
+  };
+}
+
+function productFieldsToStorage(fields, currency) {
+  return {
+    ...fields,
+    price: fields.price === "" ? "" : String(currency.inputToUsd(fields.price)),
+    buyUnitCost:
+      fields.buyUnitCost === "" ? "" : String(currency.inputToUsd(fields.buyUnitCost)),
   };
 }
 
@@ -40,28 +73,36 @@ function emptyPurchaseLine(products = []) {
   };
 }
 
-function formatPurchaseTime(value) {
-  if (!value) return "Unknown time";
+function formatPurchaseTime(value, t) {
+  if (!value) return t("products.unknownTime");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
 }
 
 function ProductForm({ initial, onSave, onCancel, saveLabel }) {
-  const [fields, setFields] = useState(fieldsFromProduct(initial));
+  const currency = useCurrency();
+  const { t, tError } = useLocale();
+  const [fields, setFields] = useState(() => fieldsFromProduct(initial, currency));
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const set = (key) => (e) => setFields((f) => ({ ...f, [key]: e.target.value }));
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const result = onSave(fields);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    if (!initial) setFields(fieldsFromProduct(null));
     setError("");
+    setBusy(true);
+    try {
+      const result = await Promise.resolve(onSave(productFieldsToStorage(fields, currency)));
+      if (!result?.ok) {
+        setError(result?.error ?? t("products.saveFailed"));
+        return;
+      }
+      if (!initial) setFields(emptyProductFields());
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -69,21 +110,21 @@ function ProductForm({ initial, onSave, onCancel, saveLabel }) {
       <p className="text-xs font-bold text-blue-500 uppercase tracking-widest">{saveLabel}</p>
       <input
         type="text"
-        placeholder="Product name *"
+        placeholder={t("products.productName")}
         value={fields.name}
         onChange={set("name")}
         className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
       />
       <input
         type="text"
-        placeholder="Lot number *"
+        placeholder={t("products.lotNumber")}
         value={fields.lotNumber}
         onChange={set("lotNumber")}
         className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:border-blue-500 outline-none"
       />
       <Box>
         <label className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">
-          Expiration date *
+          {t("products.expirationDate")}
         </label>
         <input
           type="date"
@@ -95,28 +136,76 @@ function ProductForm({ initial, onSave, onCancel, saveLabel }) {
       <input
         type="number"
         min="0"
-        step="0.01"
-        placeholder="Price (USD) *"
+        step={currency.inputStep}
+        placeholder={`${currency.fieldLabel(t("products.priceLabel"))} *`}
         value={fields.price}
         onChange={set("price")}
         className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
       />
-      <input
-        type="number"
-        min="0"
-        step="1"
-        placeholder="Stock quantity *"
-        value={fields.stock}
-        onChange={set("stock")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
-      />
-      {error && <p className="text-red-400 text-xs">{error}</p>}
+      <Box className="grid grid-cols-2 gap-2">
+        <input
+          type="text"
+          placeholder={t("products.buyUnit")}
+          value={fields.buyUnit}
+          onChange={set("buyUnit")}
+          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+        />
+        <input
+          type="number"
+          min="1"
+          step="1"
+          placeholder={t("products.qtyPerUnit")}
+          value={fields.qtyPerUnit}
+          onChange={set("qtyPerUnit")}
+          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+        />
+      </Box>
+      <Box className="grid grid-cols-2 gap-2">
+        <input
+          type="number"
+          min="0"
+          step={currency.inputStep}
+          placeholder={currency.fieldLabel(t("products.buyUnitCost"))}
+          value={fields.buyUnitCost}
+          onChange={set("buyUnitCost")}
+          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+        />
+        <input
+          type="text"
+          placeholder={t("products.itemSizeLabel")}
+          value={fields.itemSizeLabel}
+          onChange={set("itemSizeLabel")}
+          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+        />
+      </Box>
+      <Box className="grid grid-cols-2 gap-2">
+        <input
+          type="number"
+          min="0"
+          step="1"
+          placeholder={t("products.stockQuantity")}
+          value={fields.stock}
+          onChange={set("stock")}
+          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+        />
+        <input
+          type="number"
+          min="0"
+          step="1"
+          placeholder={t("products.reorderLevel")}
+          value={fields.reorderLevelItems}
+          onChange={set("reorderLevelItems")}
+          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+        />
+      </Box>
+      {error && <p className="text-red-400 text-xs">{tError(error)}</p>}
       <Box className="flex gap-2">
         <button
           type="submit"
-          className="flex-1 bg-blue-600 hover:bg-blue-700 py-2 rounded text-sm font-bold uppercase"
+          disabled={busy}
+          className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 py-2 rounded text-sm font-bold uppercase"
         >
-          Save
+          {busy ? t("products.saving") : t("common.save")}
         </button>
         {onCancel && (
           <button
@@ -124,7 +213,7 @@ function ProductForm({ initial, onSave, onCancel, saveLabel }) {
             onClick={onCancel}
             className="px-4 py-2 rounded text-sm border border-gray-700 text-gray-400 hover:text-white"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         )}
       </Box>
@@ -147,6 +236,8 @@ export default function ProductManageModal({
   onPurchase,
   onRestock,
 }) {
+  const currency = useCurrency();
+  const { t, tError, locale } = useLocale();
   const [editingId, setEditingId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
@@ -155,7 +246,13 @@ export default function ProductManageModal({
   const [restockLot, setRestockLot] = useState("");
   const [restockExpiry, setRestockExpiry] = useState("");
   const [importMessage, setImportMessage] = useState("");
+  const [importMessageSuccess, setImportMessageSuccess] = useState(false);
   const [purchaseMessage, setPurchaseMessage] = useState("");
+  const [purchaseMessageSuccess, setPurchaseMessageSuccess] = useState(false);
+  const [addProductMessage, setAddProductMessage] = useState("");
+  const [addFormKey, setAddFormKey] = useState(0);
+  const [restockMessage, setRestockMessage] = useState("");
+  const [restockBusy, setRestockBusy] = useState(false);
   const [supplierFields, setSupplierFields] = useState(() => fieldsFromSupplier(null));
   const [purchaseReference, setPurchaseReference] = useState("");
   const [purchaseNotes, setPurchaseNotes] = useState("");
@@ -164,14 +261,15 @@ export default function ProductManageModal({
 
   const editingProduct = products.find((p) => p.id === editingId);
   const recentPurchases = useMemo(() => purchases.slice(0, 8), [purchases]);
-  const purchaseTotal = useMemo(
+  const purchaseTotalUsd = useMemo(
     () =>
       purchaseLines.reduce((sum, line) => {
         const qty = parseInt(line.qty, 10);
-        const unitCost = parseFloat(line.unitCost);
-        return sum + (Number.isNaN(qty) ? 0 : qty) * (Number.isNaN(unitCost) ? 0 : unitCost);
+        const unitCostPrimary = parseFloat(line.unitCost);
+        if (Number.isNaN(qty) || Number.isNaN(unitCostPrimary)) return sum;
+        return sum + qty * currency.inputToUsd(unitCostPrimary);
       }, 0),
-    [purchaseLines]
+    [purchaseLines, currency]
   );
 
   if (!isOpen) return null;
@@ -193,6 +291,8 @@ export default function ProductManageModal({
     setRestockExpiry("");
     setImportMessage("");
     setPurchaseMessage("");
+    setAddProductMessage("");
+    setRestockMessage("");
     resetPurchaseForm();
     onClose();
   };
@@ -200,8 +300,16 @@ export default function ProductManageModal({
   const startRestock = (product) => {
     setRestockId(product.id);
     setRestockQty("");
-    setRestockLot(product.lotNumber);
-    setRestockExpiry(product.expirationDate);
+    setRestockLot(product.lotNumber ?? "");
+    setRestockExpiry(product.expirationDate ?? "");
+    setRestockMessage("");
+  };
+
+  const clearRestockForm = () => {
+    setRestockId(null);
+    setRestockQty("");
+    setRestockLot("");
+    setRestockExpiry("");
   };
 
   const startPurchase = () => {
@@ -213,15 +321,25 @@ export default function ProductManageModal({
     setPurchaseLines((prev) => (prev.length > 0 ? prev : [emptyPurchaseLine(products)]));
   };
 
-  const submitRestock = (productId) => {
-    const result = onRestock(productId, restockQty, restockLot, restockExpiry);
-    if (result.ok) {
-      setRestockId(null);
-      setRestockQty("");
-      setRestockLot("");
-      setRestockExpiry("");
-    } else {
-      alert(result.error);
+  const submitRestock = async (productId, productName) => {
+    setRestockBusy(true);
+    setRestockMessage("");
+    try {
+      const result = await Promise.resolve(
+        onRestock(productId, restockQty, restockLot, restockExpiry)
+      );
+      if (!result?.ok) {
+        alert(tError(result?.error) || t("products.restockFailed"));
+        return;
+      }
+      const qtyAdded = restockQty;
+      clearRestockForm();
+      setRestockMessage(t("products.restockSuccess", { qty: qtyAdded, name: productName }));
+      setImportMessage("");
+      setPurchaseMessage("");
+      setAddProductMessage("");
+    } finally {
+      setRestockBusy(false);
     }
   };
 
@@ -244,27 +362,35 @@ export default function ProductManageModal({
 
     try {
       const text = await file.text();
-      const parsed = parseProductImportCsv(text);
+      const parsed = parseProductImportCsv(text, locale);
       if (!parsed.ok) {
-        setImportMessage(parsed.error);
+        setImportMessage(tError(parsed.error));
+        setImportMessageSuccess(false);
         return;
       }
 
       const result = await onImport(parsed.rows);
       if (!result.ok) {
-        setImportMessage(result.error);
+        setImportMessage(tError(result.error));
+        setImportMessageSuccess(false);
         return;
       }
 
       setImportMessage(
-        `Imported ${result.count} row(s): ${result.created} created, ${result.updated} updated.`
+        t("products.importSuccess", {
+          count: result.count,
+          created: result.created,
+          updated: result.updated,
+        })
       );
+      setImportMessageSuccess(true);
       setEditingId(null);
       setShowAddForm(false);
       setShowPurchaseForm(false);
       setRestockId(null);
     } catch (err) {
-      setImportMessage(`Could not import file: ${err?.message ?? err}`);
+      setImportMessage(t("products.importFileFailed", { error: err?.message ?? err }));
+      setImportMessageSuccess(false);
     } finally {
       e.target.value = "";
     }
@@ -320,7 +446,7 @@ export default function ProductManageModal({
           productId: line.productId,
           productName: product?.name ?? "",
           qty: line.qty,
-          unitCost: line.unitCost,
+          unitCost: String(currency.inputToUsd(line.unitCost)),
           lotNumber: line.lotNumber,
           expirationDate: line.expirationDate,
         };
@@ -328,12 +454,14 @@ export default function ProductManageModal({
     };
     const result = await onPurchase(payload);
     if (!result.ok) {
-      setPurchaseMessage(result.error);
+      setPurchaseMessage(tError(result.error));
+      setPurchaseMessageSuccess(false);
       return;
     }
     resetPurchaseForm();
     setShowPurchaseForm(false);
-    setPurchaseMessage("Purchase saved and stock updated.");
+    setPurchaseMessage(t("products.purchaseSaved"));
+    setPurchaseMessageSuccess(true);
   };
 
   return (
@@ -343,13 +471,13 @@ export default function ProductManageModal({
           <Box>
             <h3 className="font-bold flex items-center gap-2">
               <Package className="text-blue-500" size={20} />
-              Product & purchasing
+              {t("products.title")}
             </h3>
             <p className="text-[10px] text-gray-500 mt-1">
-              Products, supplier purchases, restock, and CSV import
+              {t("products.subtitle")}
             </p>
           </Box>
-          <button type="button" onClick={handleClose} aria-label="Close">
+          <button type="button" onClick={handleClose} aria-label={t("common.close")}>
             <X size={20} />
           </button>
         </Box>
@@ -365,11 +493,14 @@ export default function ProductManageModal({
                       setShowPurchaseForm(false);
                       setShowAddForm(true);
                       setPurchaseMessage("");
+                      setImportMessage("");
+                      setAddProductMessage("");
+                      setAddFormKey((key) => key + 1);
                     }}
                     className="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-gray-700 rounded-lg text-sm text-gray-400 hover:text-white hover:border-blue-500"
                   >
                     <Plus size={16} />
-                    Add product
+                    {t("products.addProduct")}
                   </button>
                 )}
                 <button
@@ -378,7 +509,7 @@ export default function ProductManageModal({
                   className="w-full flex items-center justify-center gap-2 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:text-white hover:border-amber-500"
                 >
                   <Truck size={16} />
-                  Record purchase
+                  {t("products.recordPurchase")}
                 </button>
                 <button
                   type="button"
@@ -386,7 +517,7 @@ export default function ProductManageModal({
                   className="w-full flex items-center justify-center gap-2 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:text-white hover:border-green-500"
                 >
                   <Upload size={16} />
-                  Import CSV
+                  {t("products.importCsv")}
                 </button>
                 <button
                   type="button"
@@ -394,7 +525,7 @@ export default function ProductManageModal({
                   className="w-full flex items-center justify-center gap-2 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:text-white hover:border-cyan-500"
                 >
                   <Download size={16} />
-                  Export format
+                  {t("products.exportFormat")}
                 </button>
               </Box>
 
@@ -407,19 +538,14 @@ export default function ProductManageModal({
               />
 
               <p className="text-[10px] text-gray-500">
-                Import CSV header must be exactly:{" "}
+                {t("products.importHeaderHint")}{" "}
                 <span className="font-mono text-gray-400">{PRODUCT_IMPORT_COLUMNS.join(", ")}</span>
               </p>
-              <p className="text-[10px] text-gray-600">
-                Matching batch rows add imported <span className="font-mono">stock</span>. A different lot or expiry
-                creates a separate batch instead of overwriting the old one.
-              </p>
+              <p className="text-[10px] text-gray-600">{t("products.importBatchHint")}</p>
 
               {importMessage && (
                 <p
-                  className={`text-xs ${
-                    importMessage.startsWith("Imported") ? "text-green-400" : "text-amber-400"
-                  }`}
+                  className={`text-xs ${importMessageSuccess ? "text-green-400" : "text-amber-400"}`}
                 >
                   {importMessage}
                 </p>
@@ -427,13 +553,17 @@ export default function ProductManageModal({
 
               {purchaseMessage && (
                 <p
-                  className={`text-xs ${
-                    purchaseMessage.startsWith("Purchase saved") ? "text-green-400" : "text-amber-400"
-                  }`}
+                  className={`text-xs ${purchaseMessageSuccess ? "text-green-400" : "text-amber-400"}`}
                 >
                   {purchaseMessage}
                 </p>
               )}
+
+              {addProductMessage && (
+                <p className="text-xs text-green-400">{addProductMessage}</p>
+              )}
+
+              {restockMessage && <p className="text-xs text-green-400">{restockMessage}</p>}
 
               {showPurchaseForm && (
                 <form
@@ -443,10 +573,10 @@ export default function ProductManageModal({
                   <Box className="flex items-start justify-between gap-3">
                     <Box>
                       <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">
-                        New purchase
+                        {t("products.newPurchase")}
                       </p>
                       <p className="text-sm text-gray-400 mt-1">
-                        Record incoming stock from a supplier and keep each lot as its own batch.
+                        {t("products.purchaseSubtitle")}
                       </p>
                     </Box>
                     <ShoppingCart className="text-amber-400 shrink-0" size={18} />
@@ -462,14 +592,14 @@ export default function ProductManageModal({
                     <input
                       type="text"
                       list="supplier-options"
-                      placeholder="Supplier name *"
+                      placeholder={t("products.supplierName")}
                       value={supplierFields.name}
                       onChange={(e) => handleSupplierNameChange(e.target.value)}
                       className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
                     />
                     <input
                       type="text"
-                      placeholder="Supplier phone"
+                      placeholder={t("products.supplierPhone")}
                       value={supplierFields.phone}
                       onChange={(e) =>
                         setSupplierFields((prev) => ({ ...prev, phone: e.target.value }))
@@ -481,14 +611,14 @@ export default function ProductManageModal({
                   <Box className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <input
                       type="text"
-                      placeholder="Reference / receipt number"
+                      placeholder={t("products.purchaseReference")}
                       value={purchaseReference}
                       onChange={(e) => setPurchaseReference(e.target.value)}
                       className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
                     />
                     <textarea
                       rows={2}
-                      placeholder="Supplier address"
+                      placeholder={t("products.supplierAddress")}
                       value={supplierFields.address}
                       onChange={(e) =>
                         setSupplierFields((prev) => ({ ...prev, address: e.target.value }))
@@ -499,7 +629,7 @@ export default function ProductManageModal({
 
                   <textarea
                     rows={2}
-                    placeholder="Notes about this purchase"
+                    placeholder={t("products.purchaseNotes")}
                     value={purchaseNotes}
                     onChange={(e) => setPurchaseNotes(e.target.value)}
                     className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
@@ -508,14 +638,14 @@ export default function ProductManageModal({
                   <Box className="space-y-2">
                     <Box className="flex items-center justify-between gap-3">
                       <p className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">
-                        Purchase items
+                        {t("products.purchaseItems")}
                       </p>
                       <button
                         type="button"
                         onClick={addPurchaseLine}
                         className="text-[10px] font-bold uppercase text-amber-400 hover:text-amber-300"
                       >
-                        + Add line
+                        {t("products.addLine")}
                       </button>
                     </Box>
 
@@ -529,7 +659,7 @@ export default function ProductManageModal({
                           onChange={(e) => updatePurchaseLine(index, "productId", e.target.value)}
                           className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
                         >
-                          <option value="">Select product</option>
+                          <option value="">{t("products.selectProduct")}</option>
                           {products.map((product) => (
                             <option key={product.id} value={product.id}>
                               {product.name}
@@ -540,7 +670,7 @@ export default function ProductManageModal({
                           type="number"
                           min="1"
                           step="1"
-                          placeholder="Qty"
+                          placeholder={t("common.qty")}
                           value={line.qty}
                           onChange={(e) => updatePurchaseLine(index, "qty", e.target.value)}
                           className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm"
@@ -548,15 +678,15 @@ export default function ProductManageModal({
                         <input
                           type="number"
                           min="0"
-                          step="0.01"
-                          placeholder="Unit cost"
+                          step={currency.inputStep}
+                          placeholder={currency.fieldLabel(t("products.unitCost"))}
                           value={line.unitCost}
                           onChange={(e) => updatePurchaseLine(index, "unitCost", e.target.value)}
                           className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm"
                         />
                         <input
                           type="text"
-                          placeholder="Lot number"
+                          placeholder={t("products.lotNumber").replace(" *", "")}
                           value={line.lotNumber}
                           onChange={(e) => updatePurchaseLine(index, "lotNumber", e.target.value)}
                           className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm font-mono"
@@ -583,26 +713,29 @@ export default function ProductManageModal({
 
                   <Box className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 border-t border-gray-800">
                     <Box className="text-sm">
-                      <span className="text-gray-500">Purchase total</span>{" "}
-                      <span className="font-mono text-amber-400">${purchaseTotal.toFixed(2)}</span>
+                      <span className="text-gray-500">{t("products.purchaseTotal")}</span>{" "}
+                      <span className="font-mono text-amber-400">
+                        {currency.formatPrimary(purchaseTotalUsd)}
+                      </span>
                     </Box>
                     <Box className="flex gap-2">
                       <button
                         type="submit"
                         className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-700 text-sm font-bold uppercase"
                       >
-                        Save purchase
+                        {t("products.savePurchase")}
                       </button>
                       <button
                         type="button"
                         onClick={() => {
                           setShowPurchaseForm(false);
                           setPurchaseMessage("");
+                          setPurchaseMessageSuccess(false);
                           resetPurchaseForm();
                         }}
                         className="px-4 py-2 rounded text-sm border border-gray-700 text-gray-400 hover:text-white"
                       >
-                        Cancel
+                        {t("common.cancel")}
                       </button>
                     </Box>
                   </Box>
@@ -611,13 +744,23 @@ export default function ProductManageModal({
 
               {showAddForm && (
                 <ProductForm
-                  saveLabel="New product"
-                  onSave={(fields) => {
-                    const result = onAdd(fields);
-                    if (result.ok) setShowAddForm(false);
+                  key={addFormKey}
+                  saveLabel={t("products.newProduct")}
+                  onSave={async (fields) => {
+                    const result = await Promise.resolve(onAdd(fields));
+                    if (result?.ok) {
+                      const name = fields.name?.trim() || t("common.product");
+                      setAddProductMessage(t("products.productSaved", { name }));
+                      setImportMessage("");
+                      setPurchaseMessage("");
+                      setAddFormKey((key) => key + 1);
+                    }
                     return result;
                   }}
-                  onCancel={() => setShowAddForm(false)}
+                  onCancel={() => {
+                    setShowAddForm(false);
+                    setAddProductMessage("");
+                  }}
                 />
               )}
 
@@ -625,7 +768,7 @@ export default function ProductManageModal({
                 <ProductForm
                   key={editingId}
                   initial={editingProduct}
-                  saveLabel="Edit product"
+                  saveLabel={t("products.editProduct")}
                   onSave={(fields) => {
                     const result = onUpdate(editingId, fields);
                     if (result.ok) setEditingId(null);
@@ -638,14 +781,14 @@ export default function ProductManageModal({
               <Box className="bg-[#111111] border border-gray-800 rounded-xl overflow-hidden">
                 <Box className="p-4 border-b border-gray-800">
                   <p className="text-xs font-bold text-cyan-400 uppercase tracking-widest">
-                    Recent purchases
+                    {t("products.recentPurchases")}
                   </p>
                   <p className="text-sm text-gray-400 mt-1">
-                    Latest supplier deliveries and stock entries.
+                    {t("products.recentPurchasesHint")}
                   </p>
                 </Box>
                 {recentPurchases.length === 0 ? (
-                  <p className="p-4 text-sm text-gray-600">No purchases recorded yet.</p>
+                  <p className="p-4 text-sm text-gray-600">{t("products.noPurchases")}</p>
                 ) : (
                   <ul className="divide-y divide-gray-900 max-h-104 overflow-y-auto">
                     {recentPurchases.map((purchase) => (
@@ -654,16 +797,18 @@ export default function ProductManageModal({
                           <Box>
                             <p className="text-sm font-semibold text-gray-200">{purchase.supplierName}</p>
                             <p className="text-[10px] text-gray-500 mt-0.5">
-                              {formatPurchaseTime(purchase.timestamp)}
-                              {purchase.reference ? ` · Ref ${purchase.reference}` : ""}
+                              {formatPurchaseTime(purchase.timestamp, t)}
+                              {purchase.reference
+                                ? ` · ${t("products.purchaseRef", { ref: purchase.reference })}`
+                                : ""}
                             </p>
                           </Box>
                           <Box className="text-right">
                             <p className="font-mono text-amber-400">
-                              ${Number(purchase.totalCost ?? 0).toFixed(2)}
+                              {currency.formatPrimary(purchase.totalCost ?? 0)}
                             </p>
                             <p className="text-[10px] text-gray-500">
-                              {purchase.items?.length ?? 0} line(s)
+                              {t("products.purchaseLines", { count: purchase.items?.length ?? 0 })}
                             </p>
                           </Box>
                         </Box>
@@ -675,16 +820,20 @@ export default function ProductManageModal({
                             >
                               <span className="text-gray-200">{item.productName}</span>
                               <span className="font-mono">x{item.qty}</span>
-                              <span className="font-mono">@ ${Number(item.unitCost ?? 0).toFixed(2)}</span>
+                              <span className="font-mono">
+                                @ {currency.formatPrimary(item.unitCost ?? 0)}
+                              </span>
                               {item.lotNumber && (
-                                <span className="font-mono text-gray-500">Lot {item.lotNumber}</span>
+                                <span className="font-mono text-gray-500">
+                                  {t("pos.lot")} {item.lotNumber}
+                                </span>
                               )}
                             </li>
                           ))}
                         </ul>
                         {purchase.createdByUserName && (
                           <p className="text-[10px] text-gray-600">
-                            Recorded by {purchase.createdByUserName}
+                            {t("products.recordedBy", { name: purchase.createdByUserName })}
                           </p>
                         )}
                       </li>
@@ -698,15 +847,18 @@ export default function ProductManageModal({
               <Box className="bg-[#111111] border border-gray-800 rounded-xl overflow-hidden">
                 <Box className="p-4 border-b border-gray-800">
                   <p className="text-xs font-bold text-blue-500 uppercase tracking-widest">
-                    Product catalog
+                    {t("products.productCatalog")}
                   </p>
                   <p className="text-sm text-gray-400 mt-1">
-                    Name, lot, expiry, selling price, and live stock.
+                    {t("products.catalogHint")}
                   </p>
                 </Box>
                 <Box className="max-h-[70vh] overflow-y-auto p-4">
                   <ul className="space-y-2">
-                    {products.map((product) => (
+                    {products.map((product) => {
+                      const stockQty = sellableStockQuantity(product);
+                      const inStock = hasSellableStock(product);
+                      return (
                       <li
                         key={product.id}
                         className="p-3 bg-[#252525] rounded-lg border border-gray-800 space-y-2"
@@ -714,24 +866,40 @@ export default function ProductManageModal({
                         <Box className="flex items-start justify-between gap-2">
                           <Box className="min-w-0 flex-1">
                             <p className="font-medium text-gray-200">{product.name}</p>
-                            <p className="text-[10px] font-mono text-gray-500 mt-0.5">Lot {product.lotNumber}</p>
-                            <p className="text-blue-400 text-sm mt-1">${product.price.toFixed(2)}</p>
+                            <p className="text-[10px] font-mono text-gray-500 mt-0.5">
+                              {t("pos.lot")} {product.lotNumber}
+                            </p>
+                            <p className="text-blue-400 text-sm mt-1">
+                              {currency.formatPrimary(product.price)}
+                            </p>
                             <Box className="flex flex-wrap items-center gap-2 mt-2">
-                              <ExpiryBadge
-                                expirationDate={product.expirationDate}
-                                alertDays={expiryAlertDays}
-                              />
+                              {inStock ? (
+                                <ExpiryBadge
+                                  expirationDate={product.expirationDate}
+                                  alertDays={expiryAlertDays}
+                                  stock={stockQty}
+                                />
+                              ) : null}
                               <span
                                 className={`text-[10px] font-bold ${
-                                  product.stock <= 5 ? "text-red-400" : "text-gray-500"
+                                  inStock && product.reorderStatus === "REORDER"
+                                    ? "text-red-400"
+                                    : stockQty <= 0
+                                      ? "text-gray-600"
+                                      : "text-gray-500"
                                 }`}
                               >
-                                Stock: {product.stock}
+                                {t("products.stockLabel", { count: stockQty })}
+                                {inStock && product.reorderStatus === "REORDER"
+                                  ? ` · ${t("products.reorder")}`
+                                  : ""}
                               </span>
                             </Box>
-                            <p className="text-[10px] text-gray-600 mt-1">
-                              Exp: {formatExpiryDate(product.expirationDate)}
-                            </p>
+                            {inStock ? (
+                              <p className="text-[10px] text-gray-600 mt-1">
+                                {t("pos.exp")}: {formatExpiryDate(product.expirationDate)}
+                              </p>
+                            ) : null}
                           </Box>
                           <Box className="flex gap-1 shrink-0">
                             <button
@@ -749,7 +917,7 @@ export default function ProductManageModal({
                             <button
                               type="button"
                               onClick={() => {
-                                if (window.confirm(`Delete "${product.name}"?`)) {
+                                if (window.confirm(t("products.deleteConfirm", { name: product.name }))) {
                                   onDelete(product.id);
                                   if (editingId === product.id) setEditingId(null);
                                 }
@@ -767,14 +935,14 @@ export default function ProductManageModal({
                             <input
                               type="number"
                               min="1"
-                              placeholder="Quantity to add"
+                              placeholder={t("products.qtyToAdd")}
                               className="w-full bg-[#0a0a0a] border border-gray-700 rounded px-2 py-1.5 text-sm"
                               value={restockQty}
                               onChange={(e) => setRestockQty(e.target.value)}
                             />
                             <input
                               type="text"
-                              placeholder="Lot number (updates batch)"
+                              placeholder={t("products.restockLot")}
                               className="w-full bg-[#0a0a0a] border border-gray-700 rounded px-2 py-1.5 text-sm font-mono"
                               value={restockLot}
                               onChange={(e) => setRestockLot(e.target.value)}
@@ -788,17 +956,22 @@ export default function ProductManageModal({
                             <Box className="flex gap-2">
                               <button
                                 type="button"
-                                onClick={() => submitRestock(product.id)}
-                                className="flex-1 py-1.5 bg-green-700 rounded text-xs font-bold uppercase"
+                                disabled={restockBusy}
+                                onClick={() => submitRestock(product.id, product.name)}
+                                className="flex-1 py-1.5 bg-green-700 disabled:opacity-60 rounded text-xs font-bold uppercase"
                               >
-                                Confirm restock
+                                {restockBusy ? t("products.saving") : t("products.confirmRestock")}
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setRestockId(null)}
+                                disabled={restockBusy}
+                                onClick={() => {
+                                  clearRestockForm();
+                                  setRestockMessage("");
+                                }}
                                 className="px-3 text-gray-500 text-xs"
                               >
-                                Cancel
+                                {t("common.cancel")}
                               </button>
                             </Box>
                           </Box>
@@ -808,11 +981,12 @@ export default function ProductManageModal({
                             onClick={() => startRestock(product)}
                             className="text-[10px] font-bold uppercase text-green-500 hover:text-green-400"
                           >
-                            + Restock / new batch
+                            {t("products.restockBatch")}
                           </button>
                         )}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 </Box>
               </Box>

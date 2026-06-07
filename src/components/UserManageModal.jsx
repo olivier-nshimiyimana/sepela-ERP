@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { User, UserPlus, X } from "lucide-react";
-import { ROLE_LABELS, ROLE_ORDER } from "../auth/roles";
+import { ROLE_ORDER } from "../auth/roles";
+import { useLocale } from "../contexts/LocaleContext";
 
 const Box = "d" + "iv";
 
@@ -10,6 +11,8 @@ export default function UserManageModal({ isOpen, users, currentUserId, onClose,
   const [password, setPassword] = useState("");
   const [role, setRole] = useState(ROLE_ORDER[0]);
   const [error, setError] = useState("");
+  const { t } = useLocale();
+  const roleLabel = (role) => t(`roles.${role}`);
 
   if (!isOpen) return null;
 
@@ -33,7 +36,7 @@ export default function UserManageModal({ isOpen, users, currentUserId, onClose,
         <Box className="p-4 border-b border-gray-800 flex justify-between items-center shrink-0">
           <h3 className="font-bold flex items-center gap-2">
             <User className="text-purple-500" size={20} />
-            Team accounts
+            {t("users.title")}
           </h3>
           <button type="button" onClick={onClose}>
             <X size={20} />
@@ -43,25 +46,25 @@ export default function UserManageModal({ isOpen, users, currentUserId, onClose,
         <Box className="p-4 overflow-auto flex-1 space-y-6">
           <form onSubmit={handleAdd} className="space-y-3 p-3 bg-[#0f0f0f] rounded-lg border border-gray-800">
             <p className="text-xs font-bold text-purple-400 uppercase tracking-widest flex items-center gap-1">
-              <UserPlus size={14} /> Add user
+              <UserPlus size={14} /> {t("users.addUser")}
             </p>
             <input
               type="text"
-              placeholder="Username"
+              placeholder={t("users.username")}
               className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm outline-none focus:border-purple-500"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
             <input
               type="text"
-              placeholder="Display name"
+              placeholder={t("users.displayName")}
               className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm outline-none focus:border-purple-500"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
             />
             <input
               type="password"
-              placeholder="Password (min 6)"
+              placeholder={t("users.password")}
               className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm outline-none focus:border-purple-500"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -73,7 +76,7 @@ export default function UserManageModal({ isOpen, users, currentUserId, onClose,
             >
               {ROLE_ORDER.map((r) => (
                 <option key={r} value={r}>
-                  {ROLE_LABELS[r]}
+                  {roleLabel(r)}
                 </option>
               ))}
             </select>
@@ -82,7 +85,7 @@ export default function UserManageModal({ isOpen, users, currentUserId, onClose,
               type="submit"
               className="w-full bg-purple-600 hover:bg-purple-700 py-2 rounded text-sm font-bold uppercase"
             >
-              Create account
+              {t("users.createAccount")}
             </button>
           </form>
 
@@ -97,8 +100,8 @@ export default function UserManageModal({ isOpen, users, currentUserId, onClose,
                 <Box>
                   <p className="font-medium">{u.displayName}</p>
                   <p className="text-xs text-gray-500">
-                    @{u.username} · {ROLE_LABELS[u.role]}
-                    {u.id === currentUserId && " · you"}
+                    @{u.username} · {roleLabel(u.role)}
+                    {u.id === currentUserId && ` · ${t("users.you")}`}
                   </p>
                 </Box>
                 {u.id !== currentUserId && (
@@ -111,7 +114,7 @@ export default function UserManageModal({ isOpen, users, currentUserId, onClose,
                         : "text-green-400 border-green-900"
                     }`}
                   >
-                    {u.active ? "Deactivate" : "Activate"}
+                    {u.active ? t("users.deactivate") : t("users.activate")}
                   </button>
                 )}
               </li>

@@ -90,6 +90,50 @@ export async function loginOperatorOnCloud(apiBaseUrl, { username, password, mer
   }
 }
 
+export function getStoredOperatorSession() {
+  try {
+    return sessionStorage.getItem("sepela-session-token") || "";
+  } catch {
+    return "";
+  }
+}
+
+function buildSessionHeaders(apiToken, sessionToken, includeJson = false) {
+  return {
+    ...buildHeaders(apiToken, includeJson),
+    ...(sessionToken ? { "X-Operator-Session": sessionToken } : {}),
+  };
+}
+
+export async function fetchMerchantBranchesOnCloud(
+  apiBaseUrl,
+  { merchantCode },
+  options = {}
+) {
+  const base = String(apiBaseUrl ?? "").trim().replace(/\/+$/, "");
+  const params = new URLSearchParams({ merchantCode });
+  const response = await fetch(`${base}/tenant/branches?${params.toString()}`, {
+    method: "GET",
+    headers: buildSessionHeaders(options.apiToken, options.sessionToken, false),
+  });
+  return parseResponse(response);
+}
+
+export async function fetchSalesReportOnCloud(
+  apiBaseUrl,
+  { merchantCode, branchCode, period },
+  options = {}
+) {
+  const base = String(apiBaseUrl ?? "").trim().replace(/\/+$/, "");
+  const params = new URLSearchParams({ merchantCode, period });
+  if (branchCode) params.set("branchCode", branchCode);
+  const response = await fetch(`${base}/reports/sales-summary?${params.toString()}`, {
+    method: "GET",
+    headers: buildSessionHeaders(options.apiToken, options.sessionToken, false),
+  });
+  return parseResponse(response);
+}
+
 export async function fetchOperatorRosterOnCloud(
   apiBaseUrl,
   { merchantCode, leaseToken },

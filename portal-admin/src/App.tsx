@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { ManageModal } from "./components/ManageModal";
 import { RowActions } from "./components/RowActions";
+import { PortalPage } from "./components/PortalPage";
+import { FormCard, FormGrid, FormSection } from "./components/ui/FormCard";
+import { FormField } from "./components/ui/FormField";
+import { SearchField } from "./components/ui/SearchField";
 import type {
   ActivationCode,
   EditKind,
@@ -21,6 +25,11 @@ import {
   groupSyncByMerchant,
 } from "./utils/grouping";
 import {
+  DEFAULT_INDUSTRY_PROFILE,
+  INDUSTRY_PROFILES,
+  industryProfileLabel,
+} from "./constants/industryProfiles";
+import {
   devicesForActivationWithBranch,
   formatActivationOption,
   formatDeviceOption,
@@ -34,6 +43,7 @@ const API_TOKEN_KEY = "sepela-portal-admin-api-token";
 type TenantFormState = {
   merchantCode: string;
   merchantName: string;
+  industryProfile: string;
   branchCode: string;
   branchName: string;
   city: string;
@@ -78,6 +88,7 @@ const TAB_LABELS: Record<PortalTab, string> = {
 const initialTenantForm: TenantFormState = {
   merchantCode: "",
   merchantName: "",
+  industryProfile: DEFAULT_INDUSTRY_PROFILE,
   branchCode: "",
   branchName: "",
   city: "",
@@ -131,6 +142,7 @@ type EditDraft = {
   password?: string;
   merchantCode?: string;
   branchCode?: string;
+  industryProfile?: string;
 };
 
 function App() {
@@ -145,6 +157,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<PortalTab>("overview");
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [tenantFormOpen, setTenantFormOpen] = useState(false);
+  const [branchFormMerchantId, setBranchFormMerchantId] = useState<string | null>(null);
   const [activationFormOpen, setActivationFormOpen] = useState(false);
   const [leaseFormOpen, setLeaseFormOpen] = useState(false);
   const [operatorFormOpen, setOperatorFormOpen] = useState(false);
@@ -163,6 +176,12 @@ function App() {
   const [syncIngestions, setSyncIngestions] = useState<SyncIngestion[]>([]);
 
   const [tenantForm, setTenantForm] = useState<TenantFormState>(initialTenantForm);
+  const [branchForm, setBranchForm] = useState({
+    code: "",
+    name: "",
+    city: "",
+    countryCode: "",
+  });
   const [activationForm, setActivationForm] = useState<ActivationFormState>(initialActivationForm);
   const [leaseForm, setLeaseForm] = useState<LeaseFormState>(initialLeaseForm);
   const [operatorForm, setOperatorForm] = useState<OperatorFormState>(initialOperatorForm);
@@ -207,6 +226,10 @@ function App() {
   const filteredMerchants = useMemo(
     () => filterMerchants(merchants, merchantSearch),
     [merchants, merchantSearch]
+  );
+  const branchFormMerchant = useMemo(
+    () => merchants.find((merchant) => merchant.id === branchFormMerchantId) ?? null,
+    [merchants, branchFormMerchantId]
   );
   const activeMerchantCount = useMemo(
     () => merchants.filter((merchant) => merchant.status === "ACTIVE").length,
@@ -335,6 +358,7 @@ function App() {
         body: JSON.stringify({
           merchantCode: tenantForm.merchantCode.trim(),
           merchantName: tenantForm.merchantName.trim(),
+          industryProfile: tenantForm.industryProfile,
           branchCode: tenantForm.branchCode.trim(),
           branchName: tenantForm.branchName.trim(),
           city: emptyToUndefined(tenantForm.city),
@@ -351,6 +375,36 @@ function App() {
     } catch (error) {
       setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "Save failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreateBranch(event: FormEvent<HTMLFormElement>, merchant: Merchant) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await portalFetch("/admin/branches", {
+        method: "POST",
+        body: JSON.stringify({
+          merchantId: merchant.id,
+          code: branchForm.code.trim(),
+          name: branchForm.name.trim(),
+          city: emptyToUndefined(branchForm.city),
+          countryCode: emptyToUndefined(branchForm.countryCode),
+        }),
+      });
+      const branchName = branchForm.name.trim();
+      setBranchForm({ code: "", name: "", city: "", countryCode: "" });
+      setBranchFormMerchantId(null);
+      await refreshAll();
+      setMessageTone("success");
+      setMessage(
+        `Branch "${branchName}" added to ${merchant.name}. Create an activation code for this branch, then activate a POS device.`
+      );
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Could not add branch.");
     } finally {
       setBusy(false);
     }
@@ -456,6 +510,7 @@ function App() {
           body: JSON.stringify({
             name: editDraft.name.trim(),
             status: editDraft.status,
+            industryProfile: editDraft.industryProfile,
           }),
         });
       } else if (editDraft.kind === "branch") {
@@ -548,25 +603,21 @@ function App() {
 
       {connectionOpen ? (
         <section className="panel connection-panel">
-          <div className="form-grid">
-            <label>
-              <span>API URL</span>
-              <input
-                value={apiBaseUrl}
-                onChange={(event) => setApiBaseUrl(event.target.value)}
-                placeholder="http://localhost:4000"
-              />
-            </label>
-            <label>
-              <span>Bearer token</span>
-              <input
-                type="password"
-                value={apiToken}
-                onChange={(event) => setApiToken(event.target.value)}
-                placeholder="PORTAL_BEARER_TOKEN"
-              />
-            </label>
-          </div>
+          <FormGrid>
+            <FormField
+              label="API URL"
+              placeholder="http://localhost:4000"
+              value={apiBaseUrl}
+              onChange={(event) => setApiBaseUrl(event.target.value)}
+            />
+            <FormField
+              label="Bearer token"
+              type="password"
+              placeholder="PORTAL_BEARER_TOKEN"
+              value={apiToken}
+              onChange={(event) => setApiToken(event.target.value)}
+            />
+          </FormGrid>
           <div className="connection-meta">
             <StatusPill tone={connectionReady ? "success" : "neutral"}>
               {connectionReady ? "Ready" : "Incomplete"}
@@ -580,10 +631,14 @@ function App() {
 
       <main className="workspace panel">
         {activeTab === "overview" && (
-          <div className="tab-pane tab-pane-overview">
-            <div className="pane-toolbar">
-              <h2>Overview</h2>
-            </div>
+          <PortalPage
+            variant="overview"
+            head={
+              <div className="pane-toolbar">
+                <h2>Overview</h2>
+              </div>
+            }
+          >
             <div className="stats-grid">
               {statCards.length === 0 ? (
                 <EmptyState text="Refresh to load metrics." />
@@ -604,101 +659,41 @@ function App() {
                 </button>
               ))}
             </div>
-          </div>
+          </PortalPage>
         )}
 
         {activeTab === "merchants" && (
-          <div className="tab-pane">
-            <div className="pane-toolbar">
-              <h2>Merchants</h2>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setTenantFormOpen((open) => !open)}
-              >
-                {tenantFormOpen ? "Hide form" : "Add merchant"}
-              </button>
-            </div>
-
-            <SearchField
-              value={merchantSearch}
-              onChange={setMerchantSearch}
-              placeholder="Search merchants, branches, devices…"
-            />
-
-            {tenantFormOpen ? (
-              <form className="inline-form stack" onSubmit={handleBootstrapTenant}>
-                <div className="form-grid">
-                  <label>
-                    <span>Merchant code</span>
-                    <input
-                      value={tenantForm.merchantCode}
-                      onChange={(event) => setTenantForm((prev) => ({ ...prev, merchantCode: event.target.value }))}
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>Merchant name</span>
-                    <input
-                      value={tenantForm.merchantName}
-                      onChange={(event) => setTenantForm((prev) => ({ ...prev, merchantName: event.target.value }))}
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>Branch code</span>
-                    <input
-                      value={tenantForm.branchCode}
-                      onChange={(event) => setTenantForm((prev) => ({ ...prev, branchCode: event.target.value }))}
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>Branch name</span>
-                    <input
-                      value={tenantForm.branchName}
-                      onChange={(event) => setTenantForm((prev) => ({ ...prev, branchName: event.target.value }))}
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>City</span>
-                    <input
-                      value={tenantForm.city}
-                      onChange={(event) => setTenantForm((prev) => ({ ...prev, city: event.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Country</span>
-                    <input
-                      value={tenantForm.countryCode}
-                      onChange={(event) => setTenantForm((prev) => ({ ...prev, countryCode: event.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Device code</span>
-                    <input
-                      value={tenantForm.deviceCode}
-                      onChange={(event) => setTenantForm((prev) => ({ ...prev, deviceCode: event.target.value }))}
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>Device label</span>
-                    <input
-                      value={tenantForm.deviceLabel}
-                      onChange={(event) => setTenantForm((prev) => ({ ...prev, deviceLabel: event.target.value }))}
-                      required
-                    />
-                  </label>
+          <>
+          <PortalPage
+            head={
+              <div className="pane-toolbar">
+                <div className="pane-toolbar-title">
+                  <h2>Merchants</h2>
+                  <span className="portal-meta">
+                    {filteredMerchants.length} of {merchants.length} shown
+                  </span>
                 </div>
-                <button type="submit" className="primary-button" disabled={busy || !connectionReady}>
-                  Save
+                <button
+                  type="button"
+                  className={`ghost-button${tenantFormOpen ? " active" : ""}`}
+                  onClick={() => {
+                    setTenantFormOpen((open) => !open);
+                    if (tenantFormOpen) return;
+                    setBranchFormMerchantId(null);
+                  }}
+                >
+                  {tenantFormOpen ? "Close form" : "Add merchant"}
                 </button>
-              </form>
-            ) : null}
-
-            <div className="scroll-region merchants-region">
+              </div>
+            }
+            filters={
+              <SearchField
+                value={merchantSearch}
+                onChange={setMerchantSearch}
+                placeholder="Search merchants, branches, devices…"
+              />
+            }
+          >
               {merchants.length === 0 ? (
                 <EmptyState text="No merchants." />
               ) : filteredMerchants.length === 0 ? (
@@ -719,10 +714,12 @@ function App() {
                       <div>
                         <strong>{merchant.name}</strong>
                         <span className="muted">
-                          <code>{merchant.code}</code> · <StatusBadge value={merchant.status} />
+                          <code>{merchant.code}</code> · <StatusBadge value={merchant.status} /> ·{" "}
+                          {industryProfileLabel(merchant.industryProfile)}
                         </span>
                       </div>
                       <div className="chip-row">
+                        <span className="chip">{industryProfileLabel(merchant.industryProfile)}</span>
                         <span className="chip">{merchant.branchCount} branches</span>
                         <span className="chip">{merchant.deviceCount} devices</span>
                       </div>
@@ -739,6 +736,7 @@ function App() {
                                   id: merchant.id,
                                   name: merchant.name,
                                   status: merchant.status,
+                                  industryProfile: merchant.industryProfile ?? DEFAULT_INDUSTRY_PROFILE,
                                   city: "",
                                   countryCode: "",
                                   label: "",
@@ -765,89 +763,106 @@ function App() {
                                 );
                               }}
                             />
+                            <button
+                              type="button"
+                              className="ghost-button accent-branch"
+                              disabled={busy}
+                              onClick={() => {
+                                setExpandedMerchantId(merchant.id);
+                                setTenantFormOpen(false);
+                                setBranchFormMerchantId(merchant.id);
+                                setBranchForm({ code: "", name: "", city: "", countryCode: "" });
+                              }}
+                            >
+                              Add branch
+                            </button>
                           </div>
                           <div className="merchant-nested-stack">
                             {merchant.branches.map((branch) => (
-                              <details key={branch.id} className="nested-details merchant-branch-details">
-                        <summary>
-                          <span>
-                            {branch.name} · <code>{branch.code}</code> ·{" "}
-                            <StatusBadge value={branch.status} />
-                          </span>
-                        </summary>
-                        <div className="nested-toolbar">
-                          <RowActions
-                            busy={busy}
-                            onEdit={() =>
-                              setEditDraft({
-                                kind: "branch",
-                                id: branch.id,
-                                name: branch.name,
-                                status: branch.status,
-                                city: branch.city ?? "",
-                                countryCode: branch.countryCode ?? "",
-                                label: "",
-                                deviceCode: "",
-                                maxDevices: "1",
-                                expiresAt: "",
-                              })
-                            }
-                            toggleLabel={branch.status === "ACTIVE" ? "Deactivate" : "Activate"}
-                            onToggle={() =>
-                              runManagedAction(async () => {
-                                const next = branch.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-                                await portalFetch(`/admin/branches/${branch.id}`, {
-                                  method: "PATCH",
-                                  body: JSON.stringify({ status: next }),
-                                });
-                              }, "Branch updated.")
-                            }
-                            onDelete={() => {
-                              if (!confirmDelete(`branch ${branch.code}`)) return;
-                              runManagedAction(
-                                () => portalFetch(`/admin/branches/${branch.id}`, { method: "DELETE" }),
-                                "Branch deleted."
-                              );
-                            }}
-                          />
-                        </div>
-                        <div className="nested-list">
-                          {branch.devices.map((device) => (
-                            <div key={device.id} className="nested-row">
-                              <div>
-                                <strong>{device.label}</strong>
-                                <p>
-                                  <code>{device.deviceCode}</code>
-                                </p>
+                              <div key={branch.id} className="branch-block">
+                                <div className="branch-block-head">
+                                  <div className="branch-block-title">
+                                    <strong>{branch.name}</strong>
+                                    <code>{branch.code}</code>
+                                    <StatusBadge value={branch.status} />
+                                    {branch.city ? <span className="muted">{branch.city}</span> : null}
+                                  </div>
+                                  <RowActions
+                                    busy={busy}
+                                    onEdit={() =>
+                                      setEditDraft({
+                                        kind: "branch",
+                                        id: branch.id,
+                                        name: branch.name,
+                                        status: branch.status,
+                                        city: branch.city ?? "",
+                                        countryCode: branch.countryCode ?? "",
+                                        label: "",
+                                        deviceCode: "",
+                                        maxDevices: "1",
+                                        expiresAt: "",
+                                      })
+                                    }
+                                    toggleLabel={branch.status === "ACTIVE" ? "Deactivate" : "Activate"}
+                                    onToggle={() =>
+                                      runManagedAction(async () => {
+                                        const next = branch.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+                                        await portalFetch(`/admin/branches/${branch.id}`, {
+                                          method: "PATCH",
+                                          body: JSON.stringify({ status: next }),
+                                        });
+                                      }, "Branch updated.")
+                                    }
+                                    onDelete={() => {
+                                      if (!confirmDelete(`branch ${branch.code}`)) return;
+                                      runManagedAction(
+                                        () => portalFetch(`/admin/branches/${branch.id}`, { method: "DELETE" }),
+                                        "Branch deleted."
+                                      );
+                                    }}
+                                  />
+                                </div>
+                                <div className="branch-device-list">
+                                  {branch.devices.length === 0 ? (
+                                    <p className="muted empty-state">No devices on this branch.</p>
+                                  ) : (
+                                    branch.devices.map((device) => (
+                                      <div key={device.id} className="nested-row">
+                                        <div>
+                                          <strong>{device.label}</strong>
+                                          <p>
+                                            <code>{device.deviceCode}</code>
+                                          </p>
+                                        </div>
+                                        <RowActions
+                                          busy={busy}
+                                          onEdit={() =>
+                                            setEditDraft({
+                                              kind: "device",
+                                              id: device.id,
+                                              name: "",
+                                              status: "",
+                                              city: "",
+                                              countryCode: "",
+                                              label: device.label,
+                                              deviceCode: device.deviceCode,
+                                              maxDevices: "1",
+                                              expiresAt: "",
+                                            })
+                                          }
+                                          onDelete={() => {
+                                            if (!confirmDelete(`device ${device.deviceCode}`)) return;
+                                            runManagedAction(
+                                              () => portalFetch(`/admin/devices/${device.id}`, { method: "DELETE" }),
+                                              "Device deleted."
+                                            );
+                                          }}
+                                        />
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
                               </div>
-                              <RowActions
-                                busy={busy}
-                                onEdit={() =>
-                                  setEditDraft({
-                                    kind: "device",
-                                    id: device.id,
-                                    name: "",
-                                    status: "",
-                                    city: "",
-                                    countryCode: "",
-                                    label: device.label,
-                                    deviceCode: device.deviceCode,
-                                    maxDevices: "1",
-                                    expiresAt: "",
-                                  })
-                                }
-                                onDelete={() => {
-                                  if (!confirmDelete(`device ${device.deviceCode}`)) return;
-                                  runManagedAction(
-                                    () => portalFetch(`/admin/devices/${device.id}`, { method: "DELETE" }),
-                                    "Device deleted."
-                                  );
-                                }}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                              </details>
                             ))}
                           </div>
                         </div>
@@ -856,30 +871,213 @@ function App() {
                   </article>
                 ))
               )}
-            </div>
-          </div>
+          </PortalPage>
+
+        {(tenantFormOpen || branchFormMerchant) ? (
+            <>
+            <button
+              type="button"
+              className="form-drawer-backdrop"
+              aria-label="Close form"
+              onClick={() => {
+                setTenantFormOpen(false);
+                setBranchFormMerchantId(null);
+              }}
+            />
+            <aside className="form-drawer">
+                  {tenantFormOpen ? (
+                    <FormCard
+                      eyebrow="New company"
+                      title="Add merchant"
+                      description="Creates the company, its first branch, and the first POS device in one step."
+                      onSubmit={handleBootstrapTenant}
+                      onClose={() => setTenantFormOpen(false)}
+                      actions={
+                        <button type="submit" className="primary-button" disabled={busy || !connectionReady}>
+                          Create merchant
+                        </button>
+                      }
+                    >
+                      <FormSection title="Company" description="Merchant identity and industry template.">
+                        <FormGrid columns={1}>
+                          <FormField
+                            label="Merchant code"
+                            required
+                            placeholder="e.g. acme-pharmacy"
+                            value={tenantForm.merchantCode}
+                            onChange={(event) =>
+                              setTenantForm((prev) => ({ ...prev, merchantCode: event.target.value }))
+                            }
+                          />
+                          <FormField
+                            label="Merchant name"
+                            required
+                            placeholder="e.g. Acme Pharmacy"
+                            value={tenantForm.merchantName}
+                            onChange={(event) =>
+                              setTenantForm((prev) => ({ ...prev, merchantName: event.target.value }))
+                            }
+                          />
+                          <FormField
+                            as="select"
+                            label="Industry profile"
+                            required
+                            value={tenantForm.industryProfile}
+                            onChange={(event) =>
+                              setTenantForm((prev) => ({ ...prev, industryProfile: event.target.value }))
+                            }
+                          >
+                            {INDUSTRY_PROFILES.map((profile) => (
+                              <option key={profile.value} value={profile.value}>
+                                {profile.label}
+                              </option>
+                            ))}
+                          </FormField>
+                        </FormGrid>
+                      </FormSection>
+
+                      <FormSection
+                        title="First branch"
+                        description="You can add more branches later from the merchant card."
+                      >
+                        <FormGrid columns={1}>
+                          <FormField
+                            label="Branch code"
+                            required
+                            placeholder="e.g. kinshasa-01"
+                            value={tenantForm.branchCode}
+                            onChange={(event) =>
+                              setTenantForm((prev) => ({ ...prev, branchCode: event.target.value }))
+                            }
+                          />
+                          <FormField
+                            label="Branch name"
+                            required
+                            placeholder="e.g. Gombe Main"
+                            value={tenantForm.branchName}
+                            onChange={(event) =>
+                              setTenantForm((prev) => ({ ...prev, branchName: event.target.value }))
+                            }
+                          />
+                          <FormField
+                            label="City"
+                            placeholder="Optional"
+                            value={tenantForm.city}
+                            onChange={(event) => setTenantForm((prev) => ({ ...prev, city: event.target.value }))}
+                          />
+                          <FormField
+                            label="Country code"
+                            placeholder="e.g. CD"
+                            value={tenantForm.countryCode}
+                            onChange={(event) =>
+                              setTenantForm((prev) => ({ ...prev, countryCode: event.target.value }))
+                            }
+                          />
+                        </FormGrid>
+                      </FormSection>
+
+                      <FormSection
+                        title="First device"
+                        description="POS terminal that will activate with an activation code."
+                      >
+                        <FormGrid columns={1}>
+                          <FormField
+                            label="Device code"
+                            required
+                            placeholder="e.g. pos-gombe-01"
+                            value={tenantForm.deviceCode}
+                            onChange={(event) =>
+                              setTenantForm((prev) => ({ ...prev, deviceCode: event.target.value }))
+                            }
+                          />
+                          <FormField
+                            label="Device label"
+                            required
+                            placeholder="e.g. Gombe counter 1"
+                            value={tenantForm.deviceLabel}
+                            onChange={(event) =>
+                              setTenantForm((prev) => ({ ...prev, deviceLabel: event.target.value }))
+                            }
+                          />
+                        </FormGrid>
+                      </FormSection>
+                    </FormCard>
+                  ) : null}
+
+                  {branchFormMerchant ? (
+                    <FormCard
+                      eyebrow="New branch"
+                      title={branchFormMerchant.name}
+                      description="Add another location under this merchant. Then create an activation code and activate a POS device."
+                      onSubmit={(event) => handleCreateBranch(event, branchFormMerchant)}
+                      onClose={() => setBranchFormMerchantId(null)}
+                      actions={
+                        <button type="submit" className="primary-button" disabled={busy}>
+                          Save branch
+                        </button>
+                      }
+                    >
+                      <FormGrid columns={1}>
+                        <FormField
+                          label="Branch code"
+                          required
+                          placeholder="e.g. kinshasa-02"
+                          value={branchForm.code}
+                          onChange={(event) => setBranchForm((prev) => ({ ...prev, code: event.target.value }))}
+                          hint="Short unique ID used in activation codes and reports."
+                        />
+                        <FormField
+                          label="Branch name"
+                          required
+                          placeholder="e.g. Gombe Store"
+                          value={branchForm.name}
+                          onChange={(event) => setBranchForm((prev) => ({ ...prev, name: event.target.value }))}
+                        />
+                        <FormField
+                          label="City"
+                          placeholder="Optional"
+                          value={branchForm.city}
+                          onChange={(event) => setBranchForm((prev) => ({ ...prev, city: event.target.value }))}
+                        />
+                        <FormField
+                          label="Country code"
+                          placeholder="e.g. CD"
+                          value={branchForm.countryCode}
+                          onChange={(event) =>
+                            setBranchForm((prev) => ({ ...prev, countryCode: event.target.value }))
+                          }
+                        />
+                      </FormGrid>
+                    </FormCard>
+                  ) : null}
+                </aside>
+            </>
+            ) : null}
+          </>
         )}
 
         {activeTab === "accounts" && (
-          <div className="tab-pane">
-            <div className="pane-toolbar">
-              <h2>Accounts</h2>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setOperatorFormOpen((open) => !open)}
-              >
-                {operatorFormOpen ? "Hide form" : "Add operator"}
-              </button>
-            </div>
-
-            <SearchField
-              value={accountSearch}
-              onChange={setAccountSearch}
-              placeholder="Search name, username, role, merchant, branch…"
-            />
-
-            {operatorFormOpen ? (
+          <PortalPage
+            head={
+              <div className="pane-toolbar">
+                <h2>Accounts</h2>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => setOperatorFormOpen((open) => !open)}
+                >
+                  {operatorFormOpen ? "Hide form" : "Add operator"}
+                </button>
+              </div>
+            }
+            filters={
+              <>
+                <SearchField
+                  value={accountSearch}
+                  onChange={setAccountSearch}
+                  placeholder="Search name, username, role, merchant, branch…"
+                />
+                {operatorFormOpen ? (
               <form
                 className="inline-form stack"
                 onSubmit={async (event) => {
@@ -1025,9 +1223,10 @@ function App() {
                   Create
                 </button>
               </form>
-            ) : null}
-
-            <div className="scroll-region">
+                ) : null}
+              </>
+            }
+          >
               {operators.length === 0 ? (
                 <EmptyState text="No operators." />
               ) : accountMerchantGroups.length === 0 ? (
@@ -1113,24 +1312,25 @@ function App() {
                   </article>
                 ))
               )}
-            </div>
-          </div>
+          </PortalPage>
         )}
 
         {activeTab === "activation" && (
-          <div className="tab-pane">
-            <div className="pane-toolbar">
-              <h2>Activation codes</h2>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setActivationFormOpen((open) => !open)}
-              >
-                {activationFormOpen ? "Hide form" : "Create code"}
-              </button>
-            </div>
-
-            {activationFormOpen ? (
+          <PortalPage
+            head={
+              <div className="pane-toolbar">
+                <h2>Activation codes</h2>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => setActivationFormOpen((open) => !open)}
+                >
+                  {activationFormOpen ? "Hide form" : "Create code"}
+                </button>
+              </div>
+            }
+            filters={
+              activationFormOpen ? (
               <form className="inline-form stack" onSubmit={handleCreateActivationCode}>
                 <div className="form-grid compact-grid">
                   <label>
@@ -1197,9 +1397,10 @@ function App() {
                   Create
                 </button>
               </form>
-            ) : null}
-
-            <div className="table-wrapper scroll-region">
+              ) : null
+            }
+          >
+            <div className="table-wrapper">
               <table>
                 <thead>
                   <tr>
@@ -1276,19 +1477,21 @@ function App() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </PortalPage>
         )}
 
         {activeTab === "leases" && (
-          <div className="tab-pane">
-            <div className="pane-toolbar">
-              <h2>Offline leases</h2>
-              <button type="button" className="ghost-button" onClick={() => setLeaseFormOpen((open) => !open)}>
-                {leaseFormOpen ? "Hide form" : "Issue lease"}
-              </button>
-            </div>
-
-            {leaseFormOpen ? (
+          <PortalPage
+            head={
+              <div className="pane-toolbar">
+                <h2>Offline leases</h2>
+                <button type="button" className="ghost-button" onClick={() => setLeaseFormOpen((open) => !open)}>
+                  {leaseFormOpen ? "Hide form" : "Issue lease"}
+                </button>
+              </div>
+            }
+            filters={
+              leaseFormOpen ? (
               <form className="inline-form stack" onSubmit={handleIssueLease}>
                 <div className="form-grid compact-grid">
                   <label>
@@ -1358,9 +1561,10 @@ function App() {
                   Issue
                 </button>
               </form>
-            ) : null}
-
-            <div className="table-wrapper scroll-region">
+              ) : null
+            }
+          >
+            <div className="table-wrapper">
               <table>
                 <thead>
                   <tr>
@@ -1443,20 +1647,29 @@ function App() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </PortalPage>
         )}
 
         {activeTab === "sync" && (
-          <div className="tab-pane">
-            <div className="pane-toolbar">
-              <h2>Sync</h2>
-            </div>
-            <SearchField
-              value={syncSearch}
-              onChange={setSyncSearch}
-              placeholder="Search merchant, device, branch…"
-            />
-            <div className="scroll-region">
+          <PortalPage
+            head={
+              <div className="pane-toolbar">
+                <div className="pane-toolbar-title">
+                  <h2>Sync</h2>
+                  <span className="portal-meta">
+                    {syncMerchantGroups.length} merchants · {syncIngestions.length} events
+                  </span>
+                </div>
+              </div>
+            }
+            filters={
+              <SearchField
+                value={syncSearch}
+                onChange={setSyncSearch}
+                placeholder="Search merchant, device, branch…"
+              />
+            }
+          >
               {syncIngestions.length === 0 ? (
                 <EmptyState text="No sync events." />
               ) : syncMerchantGroups.length === 0 ? (
@@ -1533,8 +1746,7 @@ function App() {
                   </article>
                 ))
               )}
-            </div>
-          </div>
+          </PortalPage>
         )}
       </main>
 
@@ -1560,208 +1772,181 @@ function App() {
         onSubmit={handleEditSubmit}
       >
         {editDraft?.kind === "merchant" || editDraft?.kind === "branch" ? (
-          <>
-            <label>
-              <span>Name</span>
-              <input
-                value={editDraft.name}
-                onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, name: event.target.value } : prev))}
-                required
-              />
-            </label>
+          <FormGrid>
+            <FormField
+              label="Name"
+              required
+              value={editDraft.name}
+              onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, name: event.target.value } : prev))}
+            />
             {editDraft.kind === "branch" ? (
               <>
-                <label>
-                  <span>City</span>
-                  <input
-                    value={editDraft.city}
-                    onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, city: event.target.value } : prev))}
-                  />
-                </label>
-                <label>
-                  <span>Country</span>
-                  <input
-                    value={editDraft.countryCode}
-                    onChange={(event) =>
-                      setEditDraft((prev) => (prev ? { ...prev, countryCode: event.target.value } : prev))
-                    }
-                  />
-                </label>
+                <FormField
+                  label="City"
+                  value={editDraft.city}
+                  onChange={(event) =>
+                    setEditDraft((prev) => (prev ? { ...prev, city: event.target.value } : prev))
+                  }
+                />
+                <FormField
+                  label="Country code"
+                  value={editDraft.countryCode}
+                  onChange={(event) =>
+                    setEditDraft((prev) => (prev ? { ...prev, countryCode: event.target.value } : prev))
+                  }
+                />
               </>
             ) : null}
-            <label>
-              <span>Status</span>
-              <select
-                value={editDraft.status}
-                onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, status: event.target.value } : prev))}
+            {editDraft.kind === "merchant" ? (
+              <FormField
+                as="select"
+                label="Industry profile"
+                value={editDraft.industryProfile ?? DEFAULT_INDUSTRY_PROFILE}
+                onChange={(event) =>
+                  setEditDraft((prev) =>
+                    prev ? { ...prev, industryProfile: event.target.value } : prev
+                  )
+                }
               >
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="INACTIVE">INACTIVE</option>
-              </select>
-            </label>
-          </>
-        ) : null}
-
-        {editDraft?.kind === "device" ? (
-          <>
-            <label>
-              <span>Label</span>
-              <input
-                value={editDraft.label}
-                onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, label: event.target.value } : prev))}
-                required
-              />
-            </label>
-            <label>
-              <span>Device code</span>
-              <input
-                value={editDraft.deviceCode}
-                onChange={(event) =>
-                  setEditDraft((prev) => (prev ? { ...prev, deviceCode: event.target.value } : prev))
-                }
-                required
-              />
-            </label>
-          </>
-        ) : null}
-
-        {editDraft?.kind === "activation" ? (
-          <>
-            <label>
-              <span>Max devices</span>
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={editDraft.maxDevices}
-                onChange={(event) =>
-                  setEditDraft((prev) => (prev ? { ...prev, maxDevices: event.target.value } : prev))
-                }
-                required
-              />
-            </label>
-            <label>
-              <span>Expires</span>
-              <input
-                type="date"
-                value={editDraft.expiresAt}
-                onChange={(event) =>
-                  setEditDraft((prev) => (prev ? { ...prev, expiresAt: event.target.value } : prev))
-                }
-              />
-            </label>
-            <label>
-              <span>Status</span>
-              <select
-                value={editDraft.status}
-                onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, status: event.target.value } : prev))}
-              >
-                <option value="READY">READY</option>
-                <option value="DISABLED">DISABLED</option>
-              </select>
-            </label>
-          </>
-        ) : null}
-
-        {editDraft?.kind === "lease" ? (
-          <label>
-            <span>Status</span>
-            <select
+                {INDUSTRY_PROFILES.map((profile) => (
+                  <option key={profile.value} value={profile.value}>
+                    {profile.label}
+                  </option>
+                ))}
+              </FormField>
+            ) : null}
+            <FormField
+              as="select"
+              label="Status"
               value={editDraft.status}
               onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, status: event.target.value } : prev))}
             >
               <option value="ACTIVE">ACTIVE</option>
-              <option value="REVOKED">REVOKED</option>
-            </select>
-          </label>
+              <option value="INACTIVE">INACTIVE</option>
+            </FormField>
+          </FormGrid>
+        ) : null}
+
+        {editDraft?.kind === "device" ? (
+          <FormGrid>
+            <FormField
+              label="Label"
+              required
+              value={editDraft.label}
+              onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, label: event.target.value } : prev))}
+            />
+            <FormField
+              label="Device code"
+              required
+              value={editDraft.deviceCode}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, deviceCode: event.target.value } : prev))
+              }
+            />
+          </FormGrid>
+        ) : null}
+
+        {editDraft?.kind === "activation" ? (
+          <FormGrid>
+            <FormField
+              label="Max devices"
+              type="number"
+              min="1"
+              max="100"
+              required
+              value={editDraft.maxDevices}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, maxDevices: event.target.value } : prev))
+              }
+            />
+            <FormField
+              label="Expires"
+              type="date"
+              value={editDraft.expiresAt}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, expiresAt: event.target.value } : prev))
+              }
+            />
+            <FormField
+              as="select"
+              label="Status"
+              value={editDraft.status}
+              onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, status: event.target.value } : prev))}
+            >
+              <option value="READY">READY</option>
+              <option value="DISABLED">DISABLED</option>
+            </FormField>
+          </FormGrid>
+        ) : null}
+
+        {editDraft?.kind === "lease" ? (
+          <FormField
+            as="select"
+            label="Status"
+            value={editDraft.status}
+            onChange={(event) => setEditDraft((prev) => (prev ? { ...prev, status: event.target.value } : prev))}
+          >
+            <option value="ACTIVE">ACTIVE</option>
+            <option value="REVOKED">REVOKED</option>
+          </FormField>
         ) : null}
 
         {editDraft?.kind === "operator" ? (
-          <>
-            <label>
-              <span>Display name</span>
-              <input
-                value={editDraft.displayName ?? ""}
-                onChange={(event) =>
-                  setEditDraft((prev) =>
-                    prev ? { ...prev, displayName: event.target.value } : prev
-                  )
-                }
-                required
-              />
-            </label>
-            <label>
-              <span>Role</span>
-              <select
-                value={editDraft.role ?? "cashier"}
-                onChange={(event) =>
-                  setEditDraft((prev) => (prev ? { ...prev, role: event.target.value } : prev))
-                }
-              >
-                {OPERATOR_ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Status</span>
-              <select
-                value={editDraft.status}
-                onChange={(event) =>
-                  setEditDraft((prev) => (prev ? { ...prev, status: event.target.value } : prev))
-                }
-              >
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="INACTIVE">INACTIVE</option>
-              </select>
-            </label>
-            <label>
-              <span>Branch code</span>
-              <input
-                value={editDraft.branchCode ?? ""}
-                onChange={(event) =>
-                  setEditDraft((prev) => (prev ? { ...prev, branchCode: event.target.value } : prev))
-                }
-              />
-            </label>
-            <label>
-              <span>New password (optional)</span>
-              <input
-                type="password"
-                value={editDraft.password ?? ""}
-                onChange={(event) =>
-                  setEditDraft((prev) => (prev ? { ...prev, password: event.target.value } : prev))
-                }
-              />
-            </label>
-          </>
+          <FormGrid>
+            <FormField
+              label="Display name"
+              required
+              value={editDraft.displayName ?? ""}
+              onChange={(event) =>
+                setEditDraft((prev) =>
+                  prev ? { ...prev, displayName: event.target.value } : prev
+                )
+              }
+            />
+            <FormField
+              as="select"
+              label="Role"
+              value={editDraft.role ?? "cashier"}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, role: event.target.value } : prev))
+              }
+            >
+              {OPERATOR_ROLES.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </FormField>
+            <FormField
+              as="select"
+              label="Status"
+              value={editDraft.status}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, status: event.target.value } : prev))
+              }
+            >
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="INACTIVE">INACTIVE</option>
+            </FormField>
+            <FormField
+              label="Branch code"
+              value={editDraft.branchCode ?? ""}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, branchCode: event.target.value } : prev))
+              }
+            />
+            <FormField
+              label="New password (optional)"
+              type="password"
+              value={editDraft.password ?? ""}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, password: event.target.value } : prev))
+              }
+            />
+          </FormGrid>
         ) : null}
       </ManageModal>
     </div>
-  );
-}
-
-function SearchField({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <label className="search-field">
-      <span className="sr-only">{placeholder}</span>
-      <input
-        type="search"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-      />
-    </label>
   );
 }
 

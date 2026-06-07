@@ -5,7 +5,14 @@ import {
   getExpiryStatus,
 } from "../utils/productExpiry";
 
-export default function ExpiryBadge({ expirationDate, alertDays, compact = false }) {
+export default function ExpiryBadge({
+  expirationDate,
+  alertDays,
+  compact = false,
+  stock = null,
+}) {
+  if (stock != null && Number(stock) <= 0) return null;
+
   const status = getExpiryStatus(expirationDate, alertDays);
   const days = daysUntilExpiry(expirationDate);
 

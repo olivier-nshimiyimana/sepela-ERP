@@ -2,9 +2,11 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { config } from "./config.js";
 import { pool } from "./db.js";
+import { migrateInventoryBreakdown } from "./migrations/inventoryBreakdown.js";
 import { migrateOperatorUsernameGlobal } from "./migrations/operatorUsernameGlobal.js";
 import { bootstrapSql } from "./schema.js";
 import { managementRoutes } from "./modules/managementRoutes.js";
+import { reportRoutes } from "./modules/reportRoutes.js";
 import { operatorRoutes } from "./modules/operatorRoutes.js";
 import { syncRoutes } from "./modules/syncRoutes.js";
 import { tenantRoutes } from "./modules/tenantRoutes.js";
@@ -37,7 +39,7 @@ await app.register(cors, {
     callback(null, allowed);
   },
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Operator-Session"],
 });
 
 app.setErrorHandler((error, _request, reply) => {
@@ -83,9 +85,11 @@ app.register(tenantRoutes);
 app.register(operatorRoutes);
 app.register(managementRoutes);
 app.register(syncRoutes);
+app.register(reportRoutes);
 
 async function start() {
   await pool.query(bootstrapSql);
+  await migrateInventoryBreakdown(pool);
   await migrateOperatorUsernameGlobal(pool);
   await app.listen({
     port: config.PORT,

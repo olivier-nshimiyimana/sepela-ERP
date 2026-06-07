@@ -44,10 +44,13 @@ export async function loadStockSnapshots(db, merchantCode = "local") {
 async function loadCurrentProductsForSnapshot(db, merchantCode) {
   return dbSelect(
     db,
-    `SELECT id, name, lot_number, expiration_date, price, stock
-     FROM products
-     WHERE merchant_code = ?
-     ORDER BY name ASC`,
+    `SELECT
+       p.id, p.name, p.lot_number, p.expiration_date, p.price,
+       COALESCE(b.stock_quantity_items, p.stock, 0) AS stock
+     FROM products p
+     LEFT JOIN inventory_breakdown b ON b.product_id = p.id
+     WHERE p.merchant_code = ?
+     ORDER BY p.name ASC`,
     [merchantCode]
   );
 }

@@ -15,7 +15,24 @@
 | `updated_at` | ISO timestamp of last local change |
 | `sync_status` | `PENDING` \| `SYNCED` \| `FAILED` |
 
-Tables: `products`, `sales`, `sale_items`, `settings`, `app_meta`.
+Tables: `products`, `inventory_breakdown`, `sales`, `sale_items`, `settings`, `app_meta`, `stock_snapshots`, …
+
+### Product payload — inventory breakdown fields
+
+Each product in `tables.products` includes breakdown fields (camelCase in JSON):
+
+| Field | Meaning |
+|-------|---------|
+| `buyUnit` | Wholesale packaging label |
+| `buyUnitCost` | Price for one bulk package |
+| `qtyPerUnit` | Items per bulk package |
+| `itemSizeLabel` | Size descriptor for one item |
+| `stockQuantityItems` | On-hand count in single items |
+| `reorderLevelItems` | Reorder threshold in single items |
+| `itemUnitCost` | Computed unit cost (informational) |
+| `reorderStatus` | `OK` or `REORDER` (computed at read time) |
+
+The server upserts `sync_products` and normalizes breakdown into `cloud_inventory_breakdown`. See [DATABASE.md](./DATABASE.md).
 
 ## Receipt types (SDC)
 

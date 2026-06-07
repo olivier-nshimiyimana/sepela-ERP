@@ -1,4 +1,10 @@
+import { sellableStockQuantity } from "./inventoryBreakdown";
+
 export const DEFAULT_EXPIRY_ALERT_DAYS = 30;
+
+export function hasSellableStock(product) {
+  return sellableStockQuantity(product) > 0;
+}
 
 export function parseExpiryDate(dateStr) {
   if (!dateStr) return null;
@@ -29,7 +35,7 @@ export function getExpiryStatus(expirationDate, alertDays = DEFAULT_EXPIRY_ALERT
 }
 
 export function isProductSellable(product, alertDays = DEFAULT_EXPIRY_ALERT_DAYS) {
-  if (product.stock <= 0) return false;
+  if (!hasSellableStock(product)) return false;
   return getExpiryStatus(product.expirationDate, alertDays) !== "expired";
 }
 
@@ -61,6 +67,7 @@ export function getExpiryAlerts(products, alertDays = DEFAULT_EXPIRY_ALERT_DAYS)
   const expired = [];
 
   for (const product of products) {
+    if (!hasSellableStock(product)) continue;
     const status = getExpiryStatus(product.expirationDate, alertDays);
     if (status === "expired") expired.push(product);
     else if (status === "soon") expiringSoon.push(product);

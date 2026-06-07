@@ -1,7 +1,20 @@
+import { getPlatformCompanyLine } from "../data/platformBranding";
+import { resolveInvoiceProfile } from "../data/defaultInvoiceProfile";
 import {
-  RECEIPT_TYPE_LABELS,
+  DEFAULT_LOCALE,
+  paymentMethodLabel,
+  receiptTypeLabel,
+  transactionTypeLabel,
+  translate,
+} from "../i18n";
+import {
+  DEFAULT_PRIMARY_CURRENCY,
+  formatDualCurrency,
+  normalizePrimaryCurrency,
+  saleExchangeRate,
+} from "./currency";
+import {
   RECEIPT_TYPES,
-  TRANSACTION_TYPE_LABELS,
   TRANSACTION_TYPES,
 } from "../domain/receiptTransaction";
 import {
@@ -20,10 +33,15 @@ export { RECEIPT_WIDTH };
 /**
  * @param {object} sale
  * @param {object} profile
- * @param {object} [ctx] receiptType, transactionType, sdcReceiptCode, copyIndex, ...
+ * @param {object} [ctx] receiptType, transactionType, sdcReceiptCode, copyIndex, locale, ...
  * @param {number} [width]
  */
 export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_WIDTH) {
+  const locale = ctx.locale ?? DEFAULT_LOCALE;
+  const t = (key, params) => translate(key, locale, params);
+  const primaryCurrency = ctx.primaryCurrency ?? DEFAULT_PRIMARY_CURRENCY;
+  const primary = normalizePrimaryCurrency(primaryCurrency);
+  const saleRate = saleExchangeRate(sale, ctx.exchangeRate);
   const receiptType = ctx.receiptType ?? sale.receiptType ?? RECEIPT_TYPES.NORMAL;
   const transactionType =
     ctx.transactionType ??
@@ -32,7 +50,7 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
       : sale.transactionType ?? TRANSACTION_TYPES.SALES);
   const sdcReceiptCode = ctx.sdcReceiptCode ?? sale.sdcReceiptCode ?? "RT_NORMAL_SALES";
 
-  const p = { ...profile };
+  const p = resolveInvoiceProfile(profile, locale);
   const sep = repeatChar("=", width);
   const thin = repeatChar("-", width);
   const lines = [];
@@ -44,41 +62,41 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
     }
   };
 
-  push(...buildReceiptBanners(receiptType, transactionType, ctx, width));
+  push(...buildReceiptBanners(receiptType, transactionType, ctx, width, locale));
 
-  push(center(p.companyName?.toUpperCase() || "INVOICE", width));
+  push(center(p.companyName?.toUpperCase() || t("receipt.invoice").toUpperCase(), width));
   if (p.companyTagline) push(center(p.companyTagline, width));
   for (const addr of [p.addressLine1, p.addressLine2, p.cityProvince]) {
     if (addr) push(center(addr, width));
   }
-  if (p.taxId) push(center(`Tax ID: ${p.taxId}`, width));
-  if (p.phone) push(center(`Tel: ${p.phone}`, width));
+  if (p.taxId) push(center(t("receipt.taxId", { id: p.taxId }), width));
+  if (p.phone) push(center(t("receipt.tel", { phone: p.phone }), width));
   if (p.email) push(center(p.email, width));
 
   push("");
-  push(center(getDocumentTitle(receiptType, transactionType, p), width));
+  push(center(getDocumentTitle(receiptType, transactionType, p, locale), width));
   if (p.invoiceSubtitle && receiptType !== RECEIPT_TYPES.PROFORMA) {
     push(center(p.invoiceSubtitle, width));
   }
   push(sep);
 
-  push(labelValue("SDC code", sdcReceiptCode, width));
-  push(labelValue("Receipt", RECEIPT_TYPE_LABELS[receiptType] ?? receiptType, width));
-  push(labelValue("Transaction", TRANSACTION_TYPE_LABELS[transactionType] ?? transactionType, width));
+  push(labelValue(t("receipt.sdcCode"), sdcReceiptCode, width));
+  push(labelValue(t("receipt.receipt"), receiptTypeLabel(receiptType, locale), width));
+  push(labelValue(t("receipt.transaction"), transactionTypeLabel(transactionType, locale), width));
 
   if (ctx.originalInvoiceNumber || sale.invoiceNumber) {
-    push(labelValue("Invoice", sale.invoiceNumber ?? sale.id, width));
+    push(labelValue(t("receipt.invoice"), sale.invoiceNumber ?? sale.id, width));
   }
   if (ctx.originalInvoiceNumber && ctx.isReprint) {
-    push(labelValue("Original", ctx.originalInvoiceNumber, width));
+    push(labelValue(t("receipt.original"), ctx.originalInvoiceNumber, width));
   }
   if (ctx.copyIndex > 0) {
-    push(labelValue("Copy #", String(ctx.copyIndex), width));
+    push(labelValue(t("receipt.copyNumber"), String(ctx.copyIndex), width));
   }
 
   push(
     labelValue(
-      "Date",
+      t("receipt.date"),
       new Date(sale.timestamp).toLocaleString(undefined, {
         dateStyle: "short",
         timeStyle: "short",
@@ -86,26 +104,32 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
       width
     )
   );
-  push(labelValue("Client", sale.customerName ?? "Walk-in Client", width));
-  if (sale.customerPhone) push(labelValue("Client tel", sale.customerPhone, width));
-  if (sale.customerTaxNumber) push(labelValue("Client tax", sale.customerTaxNumber, width));
-  if (sale.customerEmail) push(labelValue("Client email", sale.customerEmail, width));
+  push(labelValue(t("receipt.client"), sale.customerName ?? t("payment.walkIn"), width));
+  if (sale.customerPhone) push(labelValue(t("receipt.clientTel"), sale.customerPhone, width));
+  if (sale.customerTaxNumber) push(labelValue(t("receipt.clientTax"), sale.customerTaxNumber, width));
+  if (sale.customerEmail) push(labelValue(t("receipt.clientEmail"), sale.customerEmail, width));
   if (sale.customerAddress) {
-    for (const ln of wrapLines(`Client addr: ${sale.customerAddress}`, width)) {
+    for (const ln of wrapLines(t("receipt.clientAddr", { address: sale.customerAddress }), width)) {
       push(ln);
     }
   }
-  push(labelValue("Cashier", sale.cashierName ?? "—", width));
+  push(labelValue(t("receipt.cashier"), sale.cashierName ?? "—", width));
 
   if (receiptType !== RECEIPT_TYPES.PROFORMA) {
-    push(labelValue("Payment", sale.methodLabel ?? sale.method ?? "—", width));
+    push(
+      labelValue(
+        t("receipt.payment"),
+        sale.methodLabel ?? paymentMethodLabel(sale.method, locale) ?? "—",
+        width
+      )
+    );
   } else {
-    push(center("NOT A TAX INVOICE — QUOTE ONLY", width));
+    push(center(t("receipt.notTaxInvoice"), width));
   }
 
   if (transactionType === TRANSACTION_TYPES.REFUND || sale.status === "refunded") {
     push("");
-    push(center("*** REFUND ***", width));
+    push(center(t("receipt.refundBanner"), width));
     push(
       center(
         new Date(sale.refund?.at ?? sale.timestamp).toLocaleString(undefined, {
@@ -116,7 +140,7 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
       )
     );
     if (sale.refund?.reason) {
-      for (const ln of wrapLines(`Reason: ${sale.refund.reason}`, width)) {
+      for (const ln of wrapLines(t("receipt.reason", { reason: sale.refund.reason }), width)) {
         push(ln);
       }
     }
@@ -124,26 +148,32 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
 
   if (receiptType === RECEIPT_TYPES.TRAINING) {
     push("");
-    for (const ln of wrapLines(
-      "TRAINING MODE — No fiscal value. No digital signature. For practice only.",
-      width
-    )) {
+    for (const ln of wrapLines(t("receipt.trainingNotice"), width)) {
       push(ln);
     }
   }
 
   push(thin);
-  push(padEnd("QTY", 4) + " " + padEnd("ITEM", width - 4 - 10 - 2) + " " + padEnd("AMOUNT", 10, " "));
+  push(
+    padEnd(t("receipt.qtyHeader"), 4) +
+      " " +
+      padEnd(t("receipt.itemHeader"), width - 4 - 10 - 2) +
+      " " +
+      padEnd(t("receipt.amountHeader"), 10, " ")
+  );
   push(thin);
 
   for (const it of sale.items ?? []) {
     const sub = (it.price ?? 0) * (it.qty ?? 0);
-    push(formatReceiptItemLine(it.qty, it.name, sub, width));
-    if (it.lotNumber) push(formatReceiptSubLine(`Lot ${it.lotNumber}`, width));
+    const amountLabel = formatDualCurrency(sub, saleRate, primary).primary;
+    push(formatReceiptItemLine(it.qty, it.name, sub, width, amountLabel));
+    if (it.lotNumber) {
+      push(formatReceiptSubLine(`${t("pos.lot")} ${it.lotNumber}`, width));
+    }
     if (it.expirationDate) {
       push(
         formatReceiptSubLine(
-          `Exp ${new Date(it.expirationDate).toLocaleDateString()}`,
+          `${t("pos.exp")} ${new Date(it.expirationDate).toLocaleDateString()}`,
           width
         )
       );
@@ -151,27 +181,23 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
   }
 
   push(thin);
-  push(labelValue("TOTAL USD", `$${(sale.totalUSD ?? 0).toFixed(2)}`, width));
-  push(
-    labelValue("TOTAL CDF", `${(sale.totalCDF ?? 0).toLocaleString()} FC`, width)
-  );
+  const totalDual = formatDualCurrency(sale.totalUSD ?? 0, saleRate, primary);
+  push(labelValue(t("receipt.totalPrimary", { currency: totalDual.primaryCode }), totalDual.primary, width));
+  push(labelValue(t("receipt.totalPrimary", { currency: totalDual.secondaryCode }), totalDual.secondary, width));
 
   if (receiptType !== RECEIPT_TYPES.PROFORMA) {
     if (sale.reference) {
-      for (const ln of wrapLines(`Ref: ${sale.reference}`, width)) {
+      for (const ln of wrapLines(t("receipt.ref", { ref: sale.reference }), width)) {
         push(ln);
       }
     }
     if (sale.cardLastFour) {
-      push(labelValue("Card", `****${sale.cardLastFour}`, width));
+      push(labelValue(t("receipt.card"), `****${sale.cardLastFour}`, width));
     }
     if (sale.changeDueUSD > 0) {
-      push(labelValue("Change USD", `$${sale.changeDueUSD.toFixed(2)}`, width));
-      const changeCdf =
-        sale.changeDueUSD * (sale.totalCDF && sale.totalUSD ? sale.totalCDF / sale.totalUSD : 0);
-      if (changeCdf > 0) {
-        push(labelValue("Change CDF", `${Math.round(changeCdf).toLocaleString()} FC`, width));
-      }
+      const changeDual = formatDualCurrency(sale.changeDueUSD, saleRate, primary);
+      push(labelValue(t("receipt.changePrimary", { currency: changeDual.primaryCode }), changeDual.primary, width));
+      push(labelValue(t("receipt.changePrimary", { currency: changeDual.secondaryCode }), changeDual.secondary, width));
     }
   }
 
@@ -189,37 +215,39 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
   }
 
   push("");
-  push(center("— end —", width));
+  push(center(getPlatformCompanyLine(locale), width));
+  push("");
+  push(center(t("receipt.end"), width));
 
   return lines.join("\n");
 }
 
-function getDocumentTitle(receiptType, transactionType, profile) {
-  if (receiptType === RECEIPT_TYPES.PROFORMA) return "PROFORMA INVOICE";
+function getDocumentTitle(receiptType, transactionType, profile, locale) {
+  if (receiptType === RECEIPT_TYPES.PROFORMA) return translate("receipt.proformaTitle", locale);
   if (receiptType === RECEIPT_TYPES.TRAINING) {
     return transactionType === TRANSACTION_TYPES.REFUND
-      ? "TRAINING REFUND RECEIPT"
-      : "TRAINING SALES RECEIPT";
+      ? translate("receipt.trainingRefundTitle", locale)
+      : translate("receipt.trainingSalesTitle", locale);
   }
-  if (transactionType === TRANSACTION_TYPES.REFUND) return "REFUND RECEIPT";
-  return profile.invoiceTitle || "SALES INVOICE";
+  if (transactionType === TRANSACTION_TYPES.REFUND) return translate("receipt.refundTitle", locale);
+  return profile.invoiceTitle || translate("receipt.salesTitle", locale);
 }
 
-function buildReceiptBanners(receiptType, transactionType, ctx, width) {
+function buildReceiptBanners(receiptType, transactionType, ctx, width, locale) {
   const rows = [];
   if (receiptType === RECEIPT_TYPES.COPY) {
-    rows.push("", center("*** COPY ***", width));
-    rows.push(center("Duplicate — not original fiscal receipt", width));
+    rows.push("", center(translate("receipt.copyBanner", locale), width));
+    rows.push(center(translate("receipt.copyDuplicate", locale), width));
   }
   if (receiptType === RECEIPT_TYPES.TRAINING) {
-    rows.push("", center("*** TRAINING ***", width));
+    rows.push("", center(translate("receipt.trainingBanner", locale), width));
   }
   if (receiptType === RECEIPT_TYPES.PROFORMA) {
-    rows.push("", center("*** PROFORMA ***", width));
-    rows.push(center("Estimate only — payment not recorded", width));
+    rows.push("", center(translate("receipt.proformaBanner", locale), width));
+    rows.push(center(translate("receipt.proformaEstimate", locale), width));
   }
   if (transactionType === TRANSACTION_TYPES.REFUND && receiptType === RECEIPT_TYPES.NORMAL) {
-    rows.push("", center("*** REFUND TRANSACTION ***", width));
+    rows.push("", center(translate("receipt.refundTransactionBanner", locale), width));
   }
   return rows;
 }

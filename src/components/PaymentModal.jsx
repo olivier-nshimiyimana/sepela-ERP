@@ -3,7 +3,16 @@ import { CheckCircle2, X } from "lucide-react";
 import ChangeCalculator from "./ChangeCalculator";
 import { getPaymentMethod, PAYMENT_METHODS } from "../data/paymentMethods";
 import { computeCashPayment } from "../utils/changeCalculator";
+import {
+  CURRENCY,
+  cashReceivedToUsd,
+  formatDualCurrency,
+  normalizePrimaryCurrency,
+  usdToCdf,
+} from "../utils/currency";
 import { findMatchingCustomer, sortCustomers } from "../utils/customers";
+import { useLocale } from "../contexts/LocaleContext";
+import { paymentMethodLabel } from "../i18n";
 
 const EPSILON = 0.001;
 const Box = "d" + "iv";
@@ -15,9 +24,12 @@ export default function PaymentModal({
   customers = [],
   totalUSD,
   exchangeRate,
+  primaryCurrency,
   onClose,
   onComplete,
 }) {
+  const { t, locale } = useLocale();
+  const primary = normalizePrimaryCurrency(primaryCurrency);
   const [method, setMethod] = useState("cash");
   const [amountReceived, setAmountReceived] = useState("");
   const [reference, setReference] = useState("");
@@ -34,7 +46,8 @@ export default function PaymentModal({
   const validateBtnRef = useRef(null);
   const finishNoPrintRef = useRef(null);
 
-  const totalCDF = totalUSD * exchangeRate;
+  const totalCDF = usdToCdf(totalUSD, exchangeRate);
+  const totalDual = formatDualCurrency(totalUSD, exchangeRate, primary);
   const methodMeta = getPaymentMethod(method);
   const savedCustomers = useMemo(() => sortCustomers(customers), [customers]);
 
@@ -56,10 +69,11 @@ export default function PaymentModal({
     }
   }, [isOpen]);
 
-  const received = parseFloat(amountReceived) || 0;
-  const isValidCashAmount = !Number.isNaN(received) && received >= 0;
+  const receivedRaw = parseFloat(amountReceived) || 0;
+  const isValidCashAmount = !Number.isNaN(receivedRaw) && receivedRaw >= 0;
+  const receivedUsd = cashReceivedToUsd(receivedRaw, exchangeRate, primary);
   const { canPay: cashCanPay, changeDueUSD, shortfallUSD: shortfall } = computeCashPayment(
-    received,
+    receivedUsd,
     totalUSD
   );
   const cashCanPayValid = totalUSD > 0 && isValidCashAmount && cashCanPay;
@@ -160,11 +174,11 @@ export default function PaymentModal({
 
     const summary = {
       method,
-      methodLabel: methodMeta.label,
+      methodLabel: paymentMethodLabel(method, locale),
       totalUSD,
       totalCDF,
       changeDueUSD: method === "cash" ? changeDueUSD : 0,
-      amountReceived: method === "cash" ? received : totalUSD,
+      amountReceived: method === "cash" ? receivedUsd : totalUSD,
       reference: method === "mobile_money" ? reference.trim() : undefined,
       cardLastFour: method === "card" && cardLastFour ? cardLastFour.trim() : undefined,
       customerId: isWalkInClient ? undefined : customerId || undefined,
@@ -182,11 +196,11 @@ export default function PaymentModal({
   }, [
     canValidate,
     method,
-    methodMeta.label,
+    locale,
     totalUSD,
     totalCDF,
     changeDueUSD,
-    received,
+    receivedUsd,
     reference,
     cardLastFour,
     customerId,
@@ -274,16 +288,16 @@ export default function PaymentModal({
           <h3 className="font-bold flex items-center gap-2">
             {completed ? (
               <>
-                <CheckCircle2 className="text-green-500" /> Sale complete
+                <CheckCircle2 className="text-green-500" /> {t("payment.saleComplete")}
               </>
             ) : (
               <>
                 <methodMeta.icon className="text-green-500" size={20} />
-                Complete transaction
+                {t("payment.completeTransaction")}
               </>
             )}
           </h3>
-          <button type="button" onClick={handleClose} aria-label="Close">
+          <button type="button" onClick={handleClose} aria-label={t("common.close")}>
             <X size={20} />
           </button>
         </Box>
@@ -293,22 +307,23 @@ export default function PaymentModal({
             <CheckCircle2 className="mx-auto text-green-500" size={48} />
             <Box className="bg-[#252525] rounded-lg border border-gray-800 p-4 space-y-2">
               <p className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">
-                Payment method
+                {t("payment.paymentMethod")}
               </p>
               <p className="text-lg font-bold text-white">{completedSummary.methodLabel}</p>
               <p className="text-sm text-gray-400">
-                ${completedSummary.totalUSD.toFixed(2)} ·{" "}
-                {completedSummary.totalCDF.toLocaleString()} FC
+                {formatDualCurrency(completedSummary.totalUSD, exchangeRate, primary).primary}
+                {" · ≈ "}
+                {formatDualCurrency(completedSummary.totalUSD, exchangeRate, primary).secondary}
               </p>
               <p className="text-sm text-cyan-400">
-                Client: {completedSummary.customerName ?? "Walk-in Client"}
+                {t("common.client")}: {completedSummary.customerName ?? t("payment.walkIn")}
               </p>
               {completedSummary.customerPhone && (
-                <p className="text-xs text-gray-400">Phone: {completedSummary.customerPhone}</p>
+                <p className="text-xs text-gray-400">{t("common.phone")}: {completedSummary.customerPhone}</p>
               )}
               {completedSummary.customerTaxNumber && (
                 <p className="text-xs text-gray-400 font-mono">
-                  Tax: {completedSummary.customerTaxNumber}
+                  {t("payment.taxNumber")}: {completedSummary.customerTaxNumber}
                 </p>
               )}
               {completedSummary.customerAddress && (
@@ -319,8 +334,11 @@ export default function PaymentModal({
               )}
               {completedSummary.method === "cash" && (
                 <p className="text-green-500 font-medium pt-1">
-                  Change: ${completedSummary.changeDueUSD.toFixed(2)} (
-                  {(completedSummary.changeDueUSD * exchangeRate).toLocaleString()} FC)
+                  {t("payment.change")}:{" "}
+                  {formatDualCurrency(completedSummary.changeDueUSD, exchangeRate, primary).primary}
+                  {" (≈ "}
+                  {formatDualCurrency(completedSummary.changeDueUSD, exchangeRate, primary).secondary}
+                  )
                 </p>
               )}
               {completedSummary.reference && (
@@ -335,7 +353,7 @@ export default function PaymentModal({
               )}
             </Box>
             <p className="text-[10px] text-gray-500 uppercase tracking-widest">
-              Enter — done · P — print · Esc — done
+              {t("payment.doneHint")}
             </p>
             <Box className="grid grid-cols-2 gap-2">
               <button
@@ -343,7 +361,7 @@ export default function PaymentModal({
                 onClick={() => handleFinish(true)}
                 className="w-full bg-blue-600 hover:bg-blue-700 py-4 rounded-lg font-black text-sm uppercase tracking-widest"
               >
-                Print invoice (P)
+                {t("payment.printInvoice")}
               </button>
               <button
                 ref={finishNoPrintRef}
@@ -351,31 +369,27 @@ export default function PaymentModal({
                 onClick={() => handleFinish(false)}
                 className="w-full bg-gray-700 hover:bg-gray-600 py-4 rounded-lg font-black text-sm uppercase tracking-widest ring-2 ring-transparent focus:ring-blue-500 outline-none"
               >
-                Done (Enter)
+                {t("payment.done")}
               </button>
             </Box>
           </Box>
         ) : (
           <Box className="p-6 space-y-5">
             <Box className="flex justify-between items-center">
-              <span className="text-gray-400">Total</span>
+              <span className="text-gray-400">{t("payment.total")}</span>
               <Box className="text-right">
-                <span className="text-2xl font-bold text-white block">
-                  ${totalUSD.toFixed(2)}
-                </span>
-                <span className="text-sm text-green-500 font-medium">
-                  {totalCDF.toLocaleString()} FC
-                </span>
+                <span className="text-2xl font-bold text-white block">{totalDual.primary}</span>
+                <span className="text-sm text-green-500 font-medium">≈ {totalDual.secondary}</span>
               </Box>
             </Box>
 
             <Box className="space-y-3">
               <Box className="flex items-center justify-between">
                 <p className="text-xs font-bold text-cyan-400 uppercase tracking-widest">
-                  Client
+                  {t("common.client")}
                 </p>
                 <span className="text-[10px] text-gray-500">
-                  {savedCustomers.length} saved
+                  {t("payment.savedCount", { count: savedCustomers.length })}
                 </span>
               </Box>
               <Box className="flex flex-wrap gap-2">
@@ -388,7 +402,7 @@ export default function PaymentModal({
                       : "border-gray-700 text-gray-400 hover:text-white hover:border-cyan-500"
                   }`}
                 >
-                  Walk-in client
+                  {t("payment.walkIn")}
                 </button>
                 {visibleSavedCustomers.map((customer) => (
                   <button
@@ -403,7 +417,7 @@ export default function PaymentModal({
                   >
                     <span className="block text-xs font-semibold truncate">{customer.name}</span>
                     <span className="block text-[10px] text-gray-500 truncate">
-                      {customer.phone || customer.taxNumber || "Saved client"}
+                      {customer.phone || customer.taxNumber || t("payment.savedClient")}
                     </span>
                   </button>
                 ))}
@@ -411,7 +425,7 @@ export default function PaymentModal({
               <input
                 list="saved-clients"
                 type="text"
-                placeholder="Saved client or new client name"
+                placeholder={t("payment.clientNamePlaceholder")}
                 className="w-full bg-[#0a0a0a] border-2 border-gray-700 rounded-lg p-3 text-sm text-white outline-none focus:border-cyan-500"
                 value={customerName}
                 onChange={(e) => handleCustomerNameChange(e.target.value)}
@@ -428,20 +442,20 @@ export default function PaymentModal({
               <input
                 type="text"
                 inputMode="tel"
-                placeholder="Phone number"
+                placeholder={t("common.phone")}
                 className="w-full bg-[#0a0a0a] border border-gray-700 rounded-lg p-3 text-sm text-white outline-none focus:border-cyan-500"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
               />
               <input
                 type="text"
-                placeholder="Tax number"
+                placeholder={t("payment.taxNumber")}
                 className="w-full bg-[#0a0a0a] border border-gray-700 rounded-lg p-3 text-sm text-white outline-none focus:border-cyan-500"
                 value={customerTaxNumber}
                 onChange={(e) => setCustomerTaxNumber(e.target.value)}
               />
               <textarea
-                placeholder="Address"
+                placeholder={t("common.address")}
                 rows={2}
                 className="w-full bg-[#0a0a0a] border border-gray-700 rounded-lg p-3 text-sm text-white outline-none focus:border-cyan-500 resize-none"
                 value={customerAddress}
@@ -449,14 +463,14 @@ export default function PaymentModal({
               />
               <input
                 type="email"
-                placeholder="Email"
+                placeholder={t("common.email")}
                 className="w-full bg-[#0a0a0a] border border-gray-700 rounded-lg p-3 text-sm text-white outline-none focus:border-cyan-500"
                 value={customerEmail}
                 onChange={(e) => setCustomerEmail(e.target.value)}
               />
               {!customerInfoOk && !isWalkInClient && (
                 <p className="text-[10px] text-amber-400">
-                  To invoice a named client, name, phone number, and tax number are required. Email must be valid if entered.
+                  {t("payment.clientInvoiceHint")}
                 </p>
               )}
               <label className="flex items-center gap-2 text-xs text-gray-400">
@@ -467,18 +481,18 @@ export default function PaymentModal({
                   disabled={isWalkInClient || !customerName.trim() || !!customerId}
                 />
                 {isWalkInClient
-                  ? "Walk-in client will not be saved"
+                  ? t("payment.walkInNotSaved")
                   : customerId
-                  ? "Saved client selected"
-                  : "Save this client for next time"}
+                  ? t("payment.savedClientSelected")
+                  : t("payment.saveClientNext")}
               </label>
             </Box>
 
             <Box className="space-y-2">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">
-                Payment method
+                {t("payment.paymentMethod")}
               </p>
-              <p className="text-[10px] text-gray-600">1 Cash · 2 Mobile · 3 Card · Enter validate</p>
+              <p className="text-[10px] text-gray-600">{t("payment.methodHint")}</p>
               <Box className="grid grid-cols-3 gap-2">
                 {PAYMENT_METHODS.map((m, idx) => {
                   const Icon = m.icon;
@@ -488,7 +502,7 @@ export default function PaymentModal({
                       key={m.id}
                       type="button"
                       onClick={() => switchMethod(m.id)}
-                      title={`${m.label} (${idx + 1})`}
+                      title={`${paymentMethodLabel(m.id, locale)} (${idx + 1})`}
                       className={`flex flex-col items-center gap-1.5 py-3 px-1 rounded-lg border text-[10px] font-bold uppercase tracking-wide transition-colors ${
                         active
                           ? "border-blue-500 bg-blue-950/40 text-white"
@@ -496,7 +510,7 @@ export default function PaymentModal({
                       }`}
                     >
                       <Icon size={22} className={active ? "text-blue-400" : ""} />
-                      {m.label}
+                      {paymentMethodLabel(m.id, locale)}
                     </button>
                   );
                 })}
@@ -506,14 +520,14 @@ export default function PaymentModal({
             {method === "cash" && (
               <Box className="space-y-3">
                 <label className="text-xs font-bold text-blue-500 uppercase tracking-widest block">
-                  Amount received (USD)
+                  {t("payment.amountReceived", { currency: primary })}
                 </label>
                 <input
                   autoFocus
                   type="number"
                   min="0"
-                  step="0.01"
-                  placeholder="0.00"
+                  step={primary === CURRENCY.CDF ? "1" : "0.01"}
+                  placeholder={primary === CURRENCY.CDF ? "0" : "0.00"}
                   className={`w-full bg-[#0a0a0a] border-2 rounded-lg p-4 text-3xl font-mono text-white outline-none transition-colors ${
                     shortfall > EPSILON && amountReceived !== ""
                       ? "border-red-600 focus:border-red-500"
@@ -531,6 +545,7 @@ export default function PaymentModal({
                 <ChangeCalculator
                   totalUSD={totalUSD}
                   exchangeRate={exchangeRate}
+                  primaryCurrency={primary}
                   amountReceived={amountReceived}
                   onAmountReceivedChange={setAmountReceived}
                 />
@@ -541,21 +556,19 @@ export default function PaymentModal({
               <Box className="space-y-3">
                 <Box className="bg-[#252525] p-4 rounded-lg border border-orange-900/40 text-center">
                   <p className="text-[10px] text-orange-400 uppercase font-bold tracking-widest">
-                    Amount to collect
+                    {t("payment.amountToCollect")}
                   </p>
-                  <p className="text-2xl font-black text-green-500 mt-1">
-                    {totalCDF.toLocaleString()} FC
-                  </p>
-                  <p className="text-sm text-gray-500 mt-1">${totalUSD.toFixed(2)} USD</p>
+                  <p className="text-2xl font-black text-green-500 mt-1">{totalDual.primary}</p>
+                  <p className="text-sm text-gray-500 mt-1">≈ {totalDual.secondary}</p>
                 </Box>
                 <Box className="space-y-2">
                   <label className="text-xs font-bold text-orange-400 uppercase tracking-widest">
-                    Transaction reference
+                    {t("payment.transactionRef")}
                   </label>
                   <input
                     autoFocus
                     type="text"
-                    placeholder="M-Pesa / Airtel / Orange ref. number"
+                    placeholder={t("payment.mobileRefPlaceholder")}
                     className="w-full bg-[#0a0a0a] border-2 border-gray-700 rounded-lg p-3 text-sm font-mono text-white focus:border-orange-500 outline-none"
                     value={reference}
                     onChange={(e) => setReference(e.target.value)}
@@ -567,8 +580,7 @@ export default function PaymentModal({
                     }}
                   />
                   <p className="text-gray-500 text-xs">
-                    Enter the confirmation code from the customer&apos;s phone (min.{" "}
-                    {MIN_MOBILE_REF_LENGTH} characters).
+                    {t("payment.mobileRefHint", { min: MIN_MOBILE_REF_LENGTH })}
                   </p>
                 </Box>
               </Box>
@@ -578,16 +590,16 @@ export default function PaymentModal({
               <Box className="space-y-3">
                 <Box className="bg-[#252525] p-4 rounded-lg border border-purple-900/40 text-center">
                   <p className="text-[10px] text-purple-400 uppercase font-bold tracking-widest">
-                    Card charge
+                    {t("payment.cardCharge")}
                   </p>
-                  <p className="text-3xl font-black text-white mt-1">${totalUSD.toFixed(2)}</p>
+                  <p className="text-3xl font-black text-white mt-1">{totalDual.primary}</p>
                   <p className="text-sm text-gray-500 mt-1">
-                    Process on terminal, then confirm below
+                    ≈ {totalDual.secondary} · {t("payment.cardHint")}
                   </p>
                 </Box>
                 <Box className="space-y-2">
                   <label className="text-xs font-bold text-purple-400 uppercase tracking-widest">
-                    Last 4 digits (optional)
+                    {t("payment.cardLastFour")}
                   </label>
                   <input
                     type="text"
@@ -621,7 +633,7 @@ export default function PaymentModal({
               onClick={handleComplete}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-800 disabled:text-gray-500 py-4 rounded-lg font-black text-xl uppercase tracking-widest transition-all active:scale-95 shadow-lg focus:ring-2 focus:ring-blue-400 outline-none"
             >
-              Validate sale (Enter)
+              {t("payment.validateSale")}
             </button>
           </Box>
         )}

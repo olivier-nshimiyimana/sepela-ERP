@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { normalizeProducts, validateProductFields } from "../data/defaultProducts";
-import { DEFAULT_INVOICE_PROFILE } from "../data/defaultInvoiceProfile";
+import { DEFAULT_INVOICE_PROFILE, resolveInvoiceProfile } from "../data/defaultInvoiceProfile";
+import { normalizePrimaryCurrency } from "../utils/currency";
+import { appError, DEFAULT_LOCALE, normalizeLocale } from "../i18n";
 import { DEFAULT_EXPIRY_ALERT_DAYS } from "../utils/productExpiry";
 import {
   findMatchingProductBatch,
@@ -23,6 +25,11 @@ import { PRODUCT_IMPORT_COLUMNS } from "../utils/productImport";
 import { newEntityId, nowIso } from "../utils/ids";
 import { receiptContextForNewSale } from "../domain/receiptTransaction";
 import { getDatabase, isTauriRuntime, runSchemaMigrations } from "../db/client";
+import {
+  adjustStockQuantityItems,
+  mapBreakdownRow,
+  upsertInventoryBreakdown,
+} from "../db/inventoryBreakdown";
 import { migrateFromLocalStorageIfNeeded } from "../db/migrateFromLocalStorage";
 import { cleanupProductsTable } from "../db/productCleanup";
 import { rowToSale } from "../db/salesMapper";
@@ -34,6 +41,13 @@ import {
   readLocalLicenseAcceptance,
   saveLocalLicenseAcceptance,
 } from "../legal/license";
+import {
+  mergeAppSettingsForMerchant,
+  migrateStoredAppSettings,
+  resolveAppSettingsForMerchant,
+  settingsForBackupExport,
+  settingsFromBackupImport,
+} from "../utils/merchantSettings";
 import {
   activateDeviceOnCloud,
   applyCloudLeaseStatus,
@@ -133,41 +147,25 @@ function buildProvisionalDeviceCode() {
   return newEntityId("desktop").replace(/_/g, "-").toLowerCase();
 }
 
-function normalizeAppSettings(raw) {
-  const parsed =
-    raw && typeof raw === "object"
-      ? raw
-      : typeof raw === "string"
-        ? (() => {
-            try {
-              return JSON.parse(raw);
-            } catch {
-              return {};
-            }
-          })()
-        : {};
-  return {
-    exchangeRate: Number(parsed.exchangeRate) > 0 ? Number(parsed.exchangeRate) : 2850,
-    expiryAlertDays:
-      Number(parsed.expiryAlertDays) > 0
-        ? Number(parsed.expiryAlertDays)
-        : DEFAULT_EXPIRY_ALERT_DAYS,
-    invoiceProfile: { ...DEFAULT_INVOICE_PROFILE, ...(parsed.invoiceProfile ?? {}) },
-    invoiceCounter: Math.max(1, parseInt(parsed.invoiceCounter, 10) || 1),
-    trainingMode: !!parsed.trainingMode,
-    legalAcceptance:
-      parsed.legalAcceptance?.version && parsed.legalAcceptance?.acceptedAt
-        ? parsed.legalAcceptance
-        : null,
-  };
-}
-
-async function loadSettings(db) {
+async function loadRawSettings(db) {
   const rows = await dbSelect(db, "SELECT value_json FROM settings WHERE key = 'app_settings'");
   if (!rows[0]?.value_json) {
-    return normalizeAppSettings(null);
+    return {};
   }
-  return normalizeAppSettings(rows[0].value_json);
+  const raw = rows[0].value_json;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+async function loadSettings(db, merchantCode) {
+  const raw = await loadRawSettings(db);
+  return resolveAppSettingsForMerchant(raw, merchantCode);
 }
 
 async function saveSettings(db, settings) {
@@ -177,6 +175,12 @@ async function saveSettings(db, settings) {
     `INSERT OR REPLACE INTO settings (key, value_json, updated_at, sync_status) VALUES ('app_settings', ?, ?, ?)`,
     [JSON.stringify(settings), ts, SYNC_STATUS.PENDING]
   );
+}
+
+async function persistSettingsForMerchant(db, merchantCode, patch) {
+  const raw = await loadRawSettings(db);
+  const merged = mergeAppSettingsForMerchant(raw, merchantCode, patch);
+  await saveSettings(db, merged);
 }
 
 async function loadCloudSync(db) {
@@ -246,22 +250,31 @@ function countSyncItems(payload) {
 async function loadProducts(db, merchantCode) {
   const rows = await dbSelect(
     db,
-    `SELECT id, name, lot_number, expiration_date, price, stock, updated_at, sync_status
-     FROM products
-     WHERE merchant_code = ?
-     ORDER BY lower(name), expiration_date, lot_number`,
+    `SELECT
+       p.id, p.name, p.lot_number, p.expiration_date, p.price, p.stock,
+       p.updated_at, p.sync_status,
+       b.buy_unit, b.buy_unit_cost, b.qty_per_unit, b.item_size_label,
+       b.stock_quantity_items, b.reorder_level_items, b.item_unit_cost
+     FROM products p
+     LEFT JOIN inventory_breakdown b ON b.product_id = p.id
+     WHERE p.merchant_code = ?
+     ORDER BY lower(p.name), p.expiration_date, p.lot_number`,
     [merchantCode]
   );
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    lotNumber: r.lot_number,
-    expirationDate: r.expiration_date,
-    price: r.price,
-    stock: r.stock,
-    updatedAt: r.updated_at,
-    syncStatus: r.sync_status,
-  }));
+  return rows.map((r) => {
+    const breakdown = mapBreakdownRow(r, r.stock);
+    return {
+      id: r.id,
+      name: r.name,
+      lotNumber: r.lot_number,
+      expirationDate: r.expiration_date,
+      price: r.price,
+      stock: breakdown.stockQuantityItems,
+      ...breakdown,
+      updatedAt: r.updated_at,
+      syncStatus: r.sync_status,
+    };
+  });
 }
 
 async function loadCustomers(db, merchantCode) {
@@ -525,7 +538,7 @@ export function DatabaseProvider({ children }) {
         loadPurchases(db, merchantCode),
         loadSnapshotRows(db, merchantCode),
         loadBackupHistory(db),
-        loadSettings(db),
+        loadSettings(db, merchantCode),
         loadCloudSync(db),
       ]);
     setSqlite({
@@ -556,12 +569,17 @@ export function DatabaseProvider({ children }) {
         await migrateFromLocalStorageIfNeeded(db);
         await cleanupProductsTable(db);
         await syncDailyStockSnapshot(db);
-        const settings = await loadSettings(db);
-        if (!settings.invoiceProfile) {
-          await saveSettings(db, {
-            ...settings,
-            invoiceProfile: DEFAULT_INVOICE_PROFILE,
-          });
+        const activeTenant = await getActiveTenant(db);
+        const rawSettings = await loadRawSettings(db);
+        const migratedSettings = migrateStoredAppSettings(
+          rawSettings,
+          activeTenant.merchantCode
+        );
+        if (
+          !rawSettings.invoiceProfiles &&
+          (rawSettings.invoiceProfile || rawSettings.invoiceCounter)
+        ) {
+          await saveSettings(db, migratedSettings);
         }
         const cloudBeforeSeed = await loadCloudSync(db);
         if (DEFAULT_PORTAL_API_TOKEN && !String(cloudBeforeSeed.apiToken ?? "").trim()) {
@@ -631,6 +649,7 @@ export function DatabaseProvider({ children }) {
 }
 
 function buildFallbackApi(f) {
+  const lang = () => f.language ?? DEFAULT_LOCALE;
   return {
     storageMode: f.storageMode,
     ready: f.ready,
@@ -643,6 +662,8 @@ function buildFallbackApi(f) {
     backupHistory: f.backupHistory,
     cloudSync: f.cloudSync,
     exchangeRate: f.exchangeRate,
+    primaryCurrency: f.primaryCurrency,
+    language: f.language ?? DEFAULT_LOCALE,
     expiryAlertDays: f.expiryAlertDays,
     invoiceProfile: f.invoiceProfile,
     trainingMode: f.trainingMode,
@@ -652,7 +673,7 @@ function buildFallbackApi(f) {
     refundSale: f.refundSale,
     incrementCopyIndex: f.incrementCopyIndex,
     addProduct: (fields) => {
-      const validated = validateProductFields(fields);
+      const validated = validateProductFields(fields, lang());
       if (!validated.ok) return validated;
       f.setProducts((prev) =>
         sortProductsForCatalog([
@@ -663,7 +684,7 @@ function buildFallbackApi(f) {
       return { ok: true };
     },
     updateProduct: (id, fields) => {
-      const validated = validateProductFields(fields);
+      const validated = validateProductFields(fields, lang());
       if (!validated.ok) return validated;
       f.setProducts((prev) =>
         sortProductsForCatalog(
@@ -678,7 +699,7 @@ function buildFallbackApi(f) {
     },
     importProducts: async (rows) => {
       if (!Array.isArray(rows) || rows.length === 0) {
-        return { ok: false, error: "Select a CSV file with at least one product row." };
+        return { ok: false, error: appError("csvNoRows", lang()) };
       }
 
       const ts = nowIso();
@@ -694,9 +715,15 @@ function buildFallbackApi(f) {
           expirationDate: row.expiration_date,
           price: row.price,
           stock: row.stock,
-        });
+          stockQuantityItems: row.stock,
+          buyUnit: row.buy_unit,
+          buyUnitCost: row.buy_unit_cost,
+          qtyPerUnit: row.qty_per_unit,
+          itemSizeLabel: row.item_size_label,
+          reorderLevelItems: row.reorder_level_items,
+        }, lang());
         if (!validated.ok) {
-          return { ok: false, error: `Row ${i + 2}: ${validated.error}` };
+          return { ok: false, error: appError("csvRow", lang(), { row: i + 2, message: validated.error }) };
         }
 
         const requestedId = row.id?.trim() || null;
@@ -735,7 +762,8 @@ function buildFallbackApi(f) {
       f.setProducts(sortProductsForCatalog(nextProducts));
       return { ok: true, created, updated, count: rows.length };
     },
-    restockProduct: (id, amount, lotNumber, expirationDate) => restockLogic(f, id, amount, lotNumber, expirationDate),
+    restockProduct: (id, amount, lotNumber, expirationDate) =>
+      restockLogic(f, id, amount, lotNumber, expirationDate, lang()),
     decrementStockForSale: (saleItems) => {
       f.setProducts((prev) =>
         normalizeProducts(prev).map((p) => {
@@ -773,7 +801,14 @@ function buildFallbackApi(f) {
       f.setInvoiceProfileRaw((prev) => ({ ...DEFAULT_INVOICE_PROFILE, ...prev, ...partial }));
       return { ok: true };
     },
-    saveAllSettings: async ({ exchangeRate, expiryAlertDays, invoiceProfile, trainingMode }) => {
+    saveAllSettings: async ({
+      exchangeRate,
+      primaryCurrency,
+      language,
+      expiryAlertDays,
+      invoiceProfile,
+      trainingMode,
+    }) => {
       const parsedRate = parseFloat(exchangeRate);
       if (Number.isNaN(parsedRate) || parsedRate <= 0) {
         return { ok: false, error: "Enter a valid exchange rate." };
@@ -785,6 +820,8 @@ function buildFallbackApi(f) {
       }
 
       f.setExchangeRate(parsedRate);
+      f.setPrimaryCurrency(primaryCurrency);
+      if (language !== undefined && f.setLanguage) f.setLanguage(normalizeLocale(language));
       f.setExpiryAlertDays(parsedDays);
       f.setInvoiceProfileRaw({
         ...DEFAULT_INVOICE_PROFILE,
@@ -805,6 +842,8 @@ function buildFallbackApi(f) {
         stockSnapshots: [],
         settings: {
           exchangeRate: f.exchangeRate,
+          primaryCurrency: f.primaryCurrency,
+          language: f.language ?? DEFAULT_LOCALE,
           expiryAlertDays: f.expiryAlertDays,
           invoiceProfile: f.invoiceProfile,
           invoiceCounter: parseInt(localStorage.getItem(FALLBACK_COUNTER_KEY) || "1", 10),
@@ -819,6 +858,8 @@ function buildFallbackApi(f) {
       f.setSales(data.sales ?? []);
       f.setPurchases(data.purchases ?? []);
       f.setExchangeRate(data.settings.exchangeRate ?? 2850);
+      f.setPrimaryCurrency(data.settings.primaryCurrency);
+      if (f.setLanguage) f.setLanguage(normalizeLocale(data.settings.language ?? DEFAULT_LOCALE));
       f.setExpiryAlertDays(data.settings.expiryAlertDays ?? DEFAULT_EXPIRY_ALERT_DAYS);
       f.setInvoiceProfileRaw({
         ...DEFAULT_INVOICE_PROFILE,
@@ -844,7 +885,8 @@ function buildFallbackApi(f) {
     pushPendingSync: f.pushPendingSync,
     listPendingSync: f.listPendingSync,
     licenseAccepted: !!readLocalLicenseAcceptance(),
-    acceptLicenseAgreement: async () => {
+    acceptLicenseAgreement: async (locale) => {
+      if (locale !== undefined && f.setLanguage) f.setLanguage(normalizeLocale(locale));
       saveLocalLicenseAcceptance();
       return { ok: true };
     },
@@ -852,11 +894,15 @@ function buildFallbackApi(f) {
 }
 
 function buildSqliteApi(sqlite, refreshSqlite) {
-  const settings = normalizeAppSettings(sqlite.settings);
+  const settings =
+    sqlite.settings ??
+    resolveAppSettingsForMerchant({}, sqlite.activeTenant?.merchantCode ?? "local");
+  const lang = () => settings.language ?? DEFAULT_LOCALE;
 
   const persistSettings = async (next) => {
     const db = await getDatabase();
-    await saveSettings(db, next);
+    const { merchantCode } = await getActiveTenant(db);
+    await persistSettingsForMerchant(db, merchantCode, next);
     await refreshSqlite(db);
   };
 
@@ -966,6 +1012,13 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       });
 
       await updateSqliteSyncStatus(db, "products", "id", result.synced.products, SYNC_STATUS.SYNCED);
+      await updateSqliteSyncStatus(
+        db,
+        "inventory_breakdown",
+        "product_id",
+        result.synced.products,
+        SYNC_STATUS.SYNCED
+      );
       await updateSqliteSyncStatus(db, "customers", "id", result.synced.customers, SYNC_STATUS.SYNCED);
       await updateSqliteSyncStatus(db, "suppliers", "id", result.synced.suppliers, SYNC_STATUS.SYNCED);
       await updateSqliteSyncStatus(db, "sales", "id", result.synced.sales, SYNC_STATUS.SYNCED);
@@ -974,6 +1027,13 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       await updateSqliteSyncStatus(db, "stock_snapshots", "id", result.synced.stockSnapshots, SYNC_STATUS.SYNCED);
 
       await updateSqliteSyncStatus(db, "products", "id", result.failed.products, SYNC_STATUS.FAILED);
+      await updateSqliteSyncStatus(
+        db,
+        "inventory_breakdown",
+        "product_id",
+        result.failed.products,
+        SYNC_STATUS.FAILED
+      );
       await updateSqliteSyncStatus(db, "customers", "id", result.failed.customers, SYNC_STATUS.FAILED);
       await updateSqliteSyncStatus(db, "suppliers", "id", result.failed.suppliers, SYNC_STATUS.FAILED);
       await updateSqliteSyncStatus(db, "sales", "id", result.failed.sales, SYNC_STATUS.FAILED);
@@ -1062,14 +1122,19 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       scrubCloudSyncForTenant(sqlite.cloudSync, sqlite.activeTenant?.merchantCode ?? "local")
     ),
     exchangeRate: settings.exchangeRate,
+    primaryCurrency: settings.primaryCurrency,
+    language: settings.language ?? DEFAULT_LOCALE,
     expiryAlertDays: settings.expiryAlertDays,
-    invoiceProfile: { ...DEFAULT_INVOICE_PROFILE, ...settings.invoiceProfile },
+    invoiceProfile: resolveInvoiceProfile(
+      { ...DEFAULT_INVOICE_PROFILE, ...settings.invoiceProfile },
+      settings.language ?? DEFAULT_LOCALE
+    ),
     trainingMode: !!settings.trainingMode,
     setTrainingMode: async (v) => {
       await persistSettings({ ...settings, trainingMode: !!v });
     },
     saveSupplier: async (fields) => {
-      const validated = validateSupplierFields(fields);
+      const validated = validateSupplierFields(fields, lang());
       if (!validated.ok) return validated;
       const db = await getDatabase();
       const { merchantCode } = await getActiveTenant(db);
@@ -1111,7 +1176,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       };
     },
     saveCustomer: async (fields) => {
-      const validated = validateCustomerFields(fields);
+      const validated = validateCustomerFields(fields, lang());
       if (!validated.ok) return validated;
       const db = await getDatabase();
       const { merchantCode } = await getActiveTenant(db);
@@ -1159,12 +1224,12 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       };
     },
     updateCustomer: async (id, fields) => {
-      const validated = validateCustomerFields(fields);
+      const validated = validateCustomerFields(fields, lang());
       if (!validated.ok) return validated;
       const db = await getDatabase();
       const ts = nowIso();
       const existing = sqlite.customers.find((customer) => customer.id === id);
-      if (!existing) return { ok: false, error: "Client not found." };
+      if (!existing) return { ok: false, error: appError("clientNotFound", lang()) };
       await dbExecute(
         db,
         `UPDATE customers
@@ -1268,7 +1333,14 @@ function buildSqliteApi(sqlite, refreshSqlite) {
         );
       }
 
-      await saveSettings(db, settings);
+      await persistSettingsForMerchant(db, merchantCode, {
+        exchangeRate: settings.exchangeRate,
+        expiryAlertDays: settings.expiryAlertDays,
+        trainingMode: settings.trainingMode,
+        legalAcceptance: settings.legalAcceptance,
+        invoiceProfile: settings.invoiceProfile,
+        invoiceCounter: settings.invoiceCounter,
+      });
       await refreshSqlite(db);
       const fresh = await loadSales(db, merchantCode);
       const found = fresh.find((s) => s.id === id);
@@ -1320,9 +1392,9 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       );
     },
     recordPurchase: async (payload) => {
-      const supplierValidated = validateSupplierFields(payload.supplier ?? {});
+      const supplierValidated = validateSupplierFields(payload.supplier ?? {}, lang());
       if (!supplierValidated.ok) return supplierValidated;
-      const itemValidated = validatePurchaseItems(payload.items, sqlite.products);
+      const itemValidated = validatePurchaseItems(payload.items, sqlite.products, lang());
       if (!itemValidated.ok) return itemValidated;
 
       const db = await getDatabase();
@@ -1466,19 +1538,26 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           ) {
             continue;
           }
-          await dbExecute(
-            db,
-            `UPDATE products
-             SET stock = ?, lot_number = ?, expiration_date = ?, updated_at = ?, sync_status = ?
-             WHERE id = ?`,
+        await dbExecute(
+          db,
+          `UPDATE products
+           SET stock = ?, lot_number = ?, expiration_date = ?, updated_at = ?, sync_status = ?
+           WHERE id = ?`,
             [
-              product.stock,
+              product.stockQuantityItems ?? product.stock,
               product.lotNumber,
               product.expirationDate,
               ts,
               SYNC_STATUS.PENDING,
               product.id,
             ]
+          );
+          await upsertInventoryBreakdown(
+            db,
+            product.id,
+            product,
+            ts,
+            SYNC_STATUS.PENDING
           );
           continue;
         }
@@ -1493,11 +1572,18 @@ function buildSqliteApi(sqlite, refreshSqlite) {
             product.lotNumber,
             product.expirationDate,
             product.price,
-            product.stock,
+            product.stockQuantityItems ?? product.stock,
             merchantCode,
             product.updatedAt,
             product.syncStatus,
           ]
+        );
+        await upsertInventoryBreakdown(
+          db,
+          product.id,
+          product,
+          ts,
+          product.syncStatus ?? SYNC_STATUS.PENDING
         );
       }
 
@@ -1544,7 +1630,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       return fresh.find((s) => s.id === saleId) ?? null;
     },
     addProduct: async (fields) => {
-      const validated = validateProductFields(fields);
+      const validated = validateProductFields(fields, lang());
       if (!validated.ok) return validated;
       const db = await getDatabase();
       const { merchantCode } = await getActiveTenant(db);
@@ -1560,17 +1646,18 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           validated.data.lotNumber,
           validated.data.expirationDate,
           validated.data.price,
-          validated.data.stock,
+          validated.data.stockQuantityItems,
           merchantCode,
           ts,
           SYNC_STATUS.PENDING,
         ]
       );
+      await upsertInventoryBreakdown(db, id, validated.data, ts, SYNC_STATUS.PENDING);
       await refreshWithSnapshots(db);
       return { ok: true };
     },
     updateProduct: async (id, fields) => {
-      const validated = validateProductFields(fields);
+      const validated = validateProductFields(fields, lang());
       if (!validated.ok) return validated;
       const db = await getDatabase();
       const ts = nowIso();
@@ -1583,12 +1670,13 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           validated.data.lotNumber,
           validated.data.expirationDate,
           validated.data.price,
-          validated.data.stock,
+          validated.data.stockQuantityItems,
           ts,
           SYNC_STATUS.PENDING,
           id,
         ]
       );
+      await upsertInventoryBreakdown(db, id, validated.data, ts, SYNC_STATUS.PENDING);
       await refreshWithSnapshots(db);
       return { ok: true };
     },
@@ -1601,7 +1689,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
     },
     importProducts: async (rows) => {
       if (!Array.isArray(rows) || rows.length === 0) {
-        return { ok: false, error: "Select a CSV file with at least one product row." };
+        return { ok: false, error: appError("csvNoRows", lang()) };
       }
 
       const db = await getDatabase();
@@ -1619,9 +1707,15 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           expirationDate: row.expiration_date,
           price: row.price,
           stock: row.stock,
-        });
+          stockQuantityItems: row.stock,
+          buyUnit: row.buy_unit,
+          buyUnitCost: row.buy_unit_cost,
+          qtyPerUnit: row.qty_per_unit,
+          itemSizeLabel: row.item_size_label,
+          reorderLevelItems: row.reorder_level_items,
+        }, lang());
         if (!validated.ok) {
-          return { ok: false, error: `Row ${i + 2}: ${validated.error}` };
+          return { ok: false, error: appError("csvRow", lang(), { row: i + 2, message: validated.error }) };
         }
 
         const requestedId = row.id?.trim() || null;
@@ -1634,6 +1728,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           : matchingBatch;
 
         if (target) {
+          const mergedStock = (target.stockQuantityItems ?? target.stock ?? 0) + validated.data.stockQuantityItems;
           await dbExecute(
             db,
             `UPDATE products
@@ -1644,17 +1739,25 @@ function buildSqliteApi(sqlite, refreshSqlite) {
               validated.data.lotNumber,
               validated.data.expirationDate,
               validated.data.price,
-              (target.stock ?? 0) + validated.data.stock,
+              mergedStock,
               ts,
               SYNC_STATUS.PENDING,
               target.id,
             ]
           );
+          await upsertInventoryBreakdown(
+            db,
+            target.id,
+            { ...target, ...validated.data, stockQuantityItems: mergedStock },
+            ts,
+            SYNC_STATUS.PENDING
+          );
           const targetIndex = workingProducts.findIndex((product) => product.id === target.id);
           workingProducts[targetIndex] = {
             ...target,
             ...validated.data,
-            stock: (target.stock ?? 0) + validated.data.stock,
+            stock: mergedStock,
+            stockQuantityItems: mergedStock,
             updatedAt: ts,
             syncStatus: SYNC_STATUS.PENDING,
           };
@@ -1671,12 +1774,13 @@ function buildSqliteApi(sqlite, refreshSqlite) {
               validated.data.lotNumber,
               validated.data.expirationDate,
               validated.data.price,
-              validated.data.stock,
+              validated.data.stockQuantityItems,
               merchantCode,
               ts,
               SYNC_STATUS.PENDING,
             ]
           );
+          await upsertInventoryBreakdown(db, id, validated.data, ts, SYNC_STATUS.PENDING);
           workingProducts.push({
             id,
             ...validated.data,
@@ -1691,7 +1795,14 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       return { ok: true, created, updated, count: rows.length };
     },
     restockProduct: async (id, amount, lotNumber, expirationDate) => {
-      const r = restockLogic({ products: sqlite.products, setProducts: null }, id, amount, lotNumber, expirationDate);
+      const r = restockLogic(
+        { products: sqlite.products, setProducts: null },
+        id,
+        amount,
+        lotNumber,
+        expirationDate,
+        lang()
+      );
       if (!r.ok) return r;
       const db = await getDatabase();
       const { merchantCode } = await getActiveTenant(db);
@@ -1722,6 +1833,13 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           [r.stock, ts, SYNC_STATUS.PENDING, r.targetId]
         );
       }
+      await upsertInventoryBreakdown(
+        db,
+        r.targetId,
+        { stockQuantityItems: r.stock },
+        ts,
+        SYNC_STATUS.PENDING
+      );
       await refreshWithSnapshots(db);
       return { ok: true };
     },
@@ -1729,11 +1847,8 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       const db = await getDatabase();
       const ts = nowIso();
       for (const line of saleItems) {
-        await dbExecute(
-        db,
-          `UPDATE products SET stock = MAX(0, stock - ?), updated_at = ?, sync_status = ? WHERE id = ?`,
-          [line.qty, ts, SYNC_STATUS.PENDING, line.productId]
-        );
+        if (!line.productId) continue;
+        await adjustStockQuantityItems(db, line.productId, -Math.abs(line.qty), ts);
       }
       await refreshWithSnapshots(db);
     },
@@ -1743,11 +1858,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       const ts = nowIso();
       for (const line of saleItems) {
         if (!line.productId) continue;
-        await dbExecute(
-        db,
-          `UPDATE products SET stock = stock + ?, updated_at = ?, sync_status = ? WHERE id = ?`,
-          [line.qty, ts, SYNC_STATUS.PENDING, line.productId]
-        );
+        await adjustStockQuantityItems(db, line.productId, Math.abs(line.qty), ts);
       }
       await refreshWithSnapshots(db);
     },
@@ -1772,7 +1883,14 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       });
       return { ok: true };
     },
-    saveAllSettings: async ({ exchangeRate, expiryAlertDays, invoiceProfile, trainingMode }) => {
+    saveAllSettings: async ({
+      exchangeRate,
+      primaryCurrency,
+      language,
+      expiryAlertDays,
+      invoiceProfile,
+      trainingMode,
+    }) => {
       const parsedRate = parseFloat(exchangeRate);
       if (Number.isNaN(parsedRate) || parsedRate <= 0) {
         return { ok: false, error: "Enter a valid exchange rate." };
@@ -1786,6 +1904,8 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       await persistSettings({
         ...settings,
         exchangeRate: parsedRate,
+        primaryCurrency: normalizePrimaryCurrency(primaryCurrency),
+        language: language !== undefined ? normalizeLocale(language) : settings.language,
         expiryAlertDays: parsedDays,
         invoiceProfile: {
           ...DEFAULT_INVOICE_PROFILE,
@@ -1938,6 +2058,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       const exportedAt = nowIso();
       await upsertMeta(db, LAST_BACKUP_EXPORT_AT_KEY, exportedAt);
       await refreshSqlite(db);
+      const rawSettings = await loadRawSettings(db);
       return {
         products: sqlite.products,
         customers: sqlite.customers,
@@ -1945,7 +2066,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
         sales: sqlite.sales,
         purchases: sqlite.purchases,
         stockSnapshots: sqlite.stockSnapshots,
-        settings: sqlite.settings,
+        settings: settingsForBackupExport(rawSettings),
       };
     },
     restoreBackupData: async (data) => {
@@ -1968,13 +2089,11 @@ function buildSqliteApi(sqlite, refreshSqlite) {
         await dbExecute(db, sql);
       }
 
-      await saveSettings(db, {
-        exchangeRate: data.settings.exchangeRate ?? 2850,
-        expiryAlertDays: data.settings.expiryAlertDays ?? DEFAULT_EXPIRY_ALERT_DAYS,
-        invoiceProfile: { ...DEFAULT_INVOICE_PROFILE, ...(data.settings.invoiceProfile ?? {}) },
-        invoiceCounter: Math.max(1, parseInt(data.settings.invoiceCounter ?? 1, 10) || 1),
-        trainingMode: !!data.settings.trainingMode,
-      });
+      const activeTenant = await getActiveTenant(db);
+      await saveSettings(
+        db,
+        settingsFromBackupImport(data.settings, activeTenant.merchantCode)
+      );
 
       for (const product of data.products ?? []) {
         await dbExecute(
@@ -2210,29 +2329,33 @@ function buildSqliteApi(sqlite, refreshSqlite) {
     },
     licenseAccepted:
       isLicenseAcceptedInSettings(settings) || !!readLocalLicenseAcceptance(),
-    acceptLicenseAgreement: async () => {
+    acceptLicenseAgreement: async (locale) => {
       const legalAcceptance = licenseAcceptanceForSettings();
-      await persistSettings({ ...settings, legalAcceptance });
+      await persistSettings({
+        ...settings,
+        legalAcceptance,
+        language: locale !== undefined ? normalizeLocale(locale) : settings.language ?? DEFAULT_LOCALE,
+      });
       saveLocalLicenseAcceptance();
       return { ok: true, legalAcceptance };
     },
   };
 }
 
-function restockLogic(f, id, amount, lotNumber, expirationDate) {
+function restockLogic(f, id, amount, lotNumber, expirationDate, locale = DEFAULT_LOCALE) {
   const delta = parseInt(amount, 10);
   if (Number.isNaN(delta) || delta <= 0) {
-    return { ok: false, error: "Enter a positive quantity to add." };
+    return { ok: false, error: appError("restockQtyPositive", locale) };
   }
   const trimmedLot = lotNumber?.trim();
   if (trimmedLot && trimmedLot.length < 2) {
-    return { ok: false, error: "Lot number must be at least 2 characters." };
+    return { ok: false, error: appError("restockLotMin", locale) };
   }
   if (expirationDate) {
     const [y, m, d] = expirationDate.split("-").map(Number);
     const date = new Date(y, m - 1, d);
     if (Number.isNaN(date.getTime())) {
-      return { ok: false, error: "Enter a valid expiration date." };
+      return { ok: false, error: appError("expirationInvalid", locale) };
     }
   }
   const resolved = resolveBatchTarget(f.products, id, trimmedLot, expirationDate);

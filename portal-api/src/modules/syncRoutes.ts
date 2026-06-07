@@ -94,10 +94,11 @@ export const syncRoutes: FastifyPluginAsync = async (app) => {
       await ensureTenantShell(client, body.merchantCode, body.branchCode, body.deviceId);
 
       for (const row of body.tables.products) {
+        const productId = readKey(row, "id");
         await upsertByUpdatedAt(client, {
           table: "sync_products",
           keyColumn: "id",
-          keyValue: readKey(row, "id"),
+          keyValue: productId,
           payload: row,
           merchantCode: body.merchantCode,
           branchCode: body.branchCode,
@@ -105,6 +106,14 @@ export const syncRoutes: FastifyPluginAsync = async (app) => {
           syncedBucket: synced.products,
           failedBucket: failed.products,
         });
+        if (productId && !failed.products.includes(productId)) {
+          await upsertCloudInventoryBreakdown(client, {
+            merchantCode: body.merchantCode,
+            productId,
+            payload: row,
+            updatedAt: readUpdatedAt(row),
+          });
+        }
       }
 
       for (const row of body.tables.customers) {
@@ -343,4 +352,86 @@ function countResultItems(value: Record<string, unknown>): number {
     (sum, entry) => sum + (Array.isArray(entry) ? entry.length : 0),
     0
   );
+}
+
+type CloudBreakdownArgs = {
+  merchantCode: string;
+  productId: string;
+  payload: Record<string, unknown>;
+  updatedAt: Date;
+};
+
+async function upsertCloudInventoryBreakdown(
+  client: import("pg").PoolClient,
+  args: CloudBreakdownArgs
+): Promise<void> {
+  const buyUnit = readStringField(args.payload, ["buyUnit", "buy_unit"], "Unit");
+  const buyUnitCost = readNumberField(args.payload, ["buyUnitCost", "buy_unit_cost"], 0);
+  const qtyPerUnit = Math.max(1, Math.trunc(readNumberField(args.payload, ["qtyPerUnit", "qty_per_unit"], 1)));
+  const itemSizeLabel = readStringField(args.payload, ["itemSizeLabel", "item_size_label"], "");
+  const stockQuantityItems = Math.max(
+    0,
+    Math.trunc(
+      readNumberField(args.payload, ["stockQuantityItems", "stock_quantity_items", "stock"], 0)
+    )
+  );
+  const reorderLevelItems = Math.max(
+    0,
+    Math.trunc(readNumberField(args.payload, ["reorderLevelItems", "reorder_level_items"], 0))
+  );
+
+  await client.query(
+    `INSERT INTO cloud_inventory_breakdown (
+       merchant_code, product_id, buy_unit, buy_unit_cost, qty_per_unit, item_size_label,
+       stock_quantity_items, reorder_level_items, updated_at, sync_status
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'SYNCED')
+     ON CONFLICT (merchant_code, product_id) DO UPDATE SET
+       buy_unit = EXCLUDED.buy_unit,
+       buy_unit_cost = EXCLUDED.buy_unit_cost,
+       qty_per_unit = EXCLUDED.qty_per_unit,
+       item_size_label = EXCLUDED.item_size_label,
+       stock_quantity_items = EXCLUDED.stock_quantity_items,
+       reorder_level_items = EXCLUDED.reorder_level_items,
+       updated_at = EXCLUDED.updated_at,
+       sync_status = 'SYNCED'`,
+    [
+      args.merchantCode,
+      args.productId,
+      buyUnit,
+      buyUnitCost,
+      qtyPerUnit,
+      itemSizeLabel || null,
+      stockQuantityItems,
+      reorderLevelItems,
+      args.updatedAt.toISOString(),
+    ]
+  );
+}
+
+function readStringField(
+  row: Record<string, unknown>,
+  keys: string[],
+  fallback: string
+): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return fallback;
+}
+
+function readNumberField(
+  row: Record<string, unknown>,
+  keys: string[],
+  fallback: number
+): number {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return fallback;
 }

@@ -13,6 +13,9 @@ import SettingsModal from "./components/SettingsModal";
 import UserManageModal from "./components/UserManageModal";
 import { useAuth } from "./contexts/AuthContext";
 import { useCart } from "./hooks/useCart";
+import { CurrencyProvider } from "./contexts/CurrencyContext";
+import { LocaleProvider } from "./contexts/LocaleContext";
+import { translate } from "./i18n";
 import { useDatabase } from "./contexts/DatabaseContext";
 import { buildAppBackup, validateAppBackup } from "./utils/backupFormat";
 import { expandCartToSaleItems } from "./utils/fefo";
@@ -21,6 +24,7 @@ import {
   receiptContextForProforma,
   receiptContextForRefund,
 } from "./domain/receiptTransaction";
+import { resolvePortalConnection } from "./config/portalDefaults";
 import { buildProformaFromCart } from "./utils/proformaSale";
 import { getExpiryAlerts } from "./utils/productExpiry";
 
@@ -70,6 +74,8 @@ export default function App() {
     cloudSync,
     activeTenant,
     exchangeRate,
+    primaryCurrency,
+    language,
     expiryAlertDays,
     invoiceProfile,
     trainingMode,
@@ -121,6 +127,11 @@ export default function App() {
   const [invoiceReceiptContext, setInvoiceReceiptContext] = useState(null);
   const [refundTargetSale, setRefundTargetSale] = useState(null);
   const [syncQueueSummary, setSyncQueueSummary] = useState(() => summarizeSyncQueue());
+  const [sessionSalesUSD, setSessionSalesUSD] = useState(0);
+
+  useEffect(() => {
+    setSessionSalesUSD(0);
+  }, [user?.id]);
 
   const expiryAlerts = useMemo(
     () => getExpiryAlerts(products, expiryAlertDays),
@@ -193,6 +204,12 @@ export default function App() {
       exchangeRate,
     });
     await decrementStockForSale(saleItems);
+    if (!trainingMode) {
+      const amount = Number(sale?.totalUSD ?? summary?.totalUSD ?? 0);
+      if (amount > 0) {
+        setSessionSalesUSD((prev) => prev + amount);
+      }
+    }
     clearCart();
     if (options.printNow) {
       openInvoice(sale, null);
@@ -219,6 +236,13 @@ export default function App() {
     }
     if (restoreStock && result.sale?.items) {
       await restoreStockForRefund(result.sale.items);
+    }
+    const refundedTraining = result.sale?.receiptType === "TRAINING";
+    if (!trainingMode && !refundedTraining) {
+      const amount = Number(result.sale?.totalUSD ?? 0);
+      if (amount > 0) {
+        setSessionSalesUSD((prev) => Math.max(0, prev - amount));
+      }
     }
     setRefundTargetSale(null);
     const fresh = {
@@ -287,34 +311,46 @@ export default function App() {
 
   if (!ready || !db.ready) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] text-gray-500">
-        Loading…
-      </div>
+      <LocaleProvider locale={language}>
+        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] text-gray-500">
+          {translate("common.loading", language)}
+        </div>
+      </LocaleProvider>
     );
   }
 
   if (!licenseAccepted) {
     return (
-      <LicenseAgreementModal
-        onAccept={async () => {
-          await acceptLicenseAgreement();
-        }}
-      />
+      <LocaleProvider locale={language}>
+        <LicenseAgreementModal
+          onAccept={async (locale) => {
+            await acceptLicenseAgreement(locale);
+          }}
+        />
+      </LocaleProvider>
     );
   }
 
   if (!isLoggedIn) {
-    return <LoginScreen onLogin={login} ready={ready} />;
+    return (
+      <LocaleProvider locale={language}>
+        <LoginScreen onLogin={login} ready={ready} />
+      </LocaleProvider>
+    );
   }
 
+  const portal = resolvePortalConnection(cloudSync);
   const showPos = canSell(user.role);
   const showReports = can(user.role, PERMISSIONS.VIEW_REPORTS);
 
   return (
+    <LocaleProvider locale={language}>
+    <CurrencyProvider exchangeRate={exchangeRate} primaryCurrency={primaryCurrency}>
     <div className="relative flex h-screen w-screen flex-col bg-[#0a0a0a] text-white overflow-hidden font-sans">
       <AppHeader
         user={user}
         exchangeRate={exchangeRate}
+        primaryCurrency={primaryCurrency}
         expiryAlertCount={expiryAlertCount}
         reportsAreHome={showReports && !showPos}
         trainingMode={trainingMode}
@@ -331,14 +367,17 @@ export default function App() {
       {showPos && (
         <PosScreen
           user={user}
+          merchantCode={activeTenant?.merchantCode ?? authMerchantCode ?? "local"}
+          sessionSalesUSD={sessionSalesUSD}
           products={products}
           customers={customers}
           exchangeRate={exchangeRate}
+          primaryCurrency={primaryCurrency}
           expiryAlertDays={expiryAlertDays}
           cart={cart}
           totalUSD={totalUSD}
-        upsertLine={upsertLine}
-        replaceCart={replaceCart}
+          upsertLine={upsertLine}
+          replaceCart={replaceCart}
           removeLine={removeLine}
           clearCart={clearCart}
           onPaymentComplete={handlePaymentComplete}
@@ -349,6 +388,11 @@ export default function App() {
 
       {showReports && !showPos && (
         <ReportsScreen
+          user={user}
+          merchantCode={activeTenant?.merchantCode ?? authMerchantCode ?? "local"}
+          portalApiBaseUrl={portal.apiBaseUrl}
+          portalApiToken={portal.apiToken}
+          cloudConfigured={cloudConfigured}
           sales={sales}
           products={products}
           stockSnapshots={stockSnapshots}
@@ -388,6 +432,8 @@ export default function App() {
       <SettingsModal
         isOpen={isSettingsOpen}
         exchangeRate={exchangeRate}
+        primaryCurrency={primaryCurrency}
+        language={language}
         expiryAlertDays={expiryAlertDays}
         invoiceProfile={invoiceProfile}
         backupHistory={backupHistory}
@@ -448,5 +494,7 @@ export default function App() {
         onConfirm={handleRefundConfirm}
       />
     </div>
+    </CurrencyProvider>
+    </LocaleProvider>
   );
 }

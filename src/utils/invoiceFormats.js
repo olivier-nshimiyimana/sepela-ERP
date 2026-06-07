@@ -1,8 +1,15 @@
+import { DEFAULT_LOCALE, translate } from "../i18n";
+
 export const INVOICE_FORMATS = [
-  { id: "A4", label: "A4 (210 x 297 mm)", widthMm: 210, minHeightMm: 297 },
-  { id: "LETTER", label: "Letter (8.5 x 11 in)", widthMm: 216, minHeightMm: 279 },
-  { id: "THERMAL_80", label: "Thermal 80mm", widthMm: 80, minHeightMm: 180 },
+  { id: "A4", labelKey: "settings.formatA4", widthMm: 210, minHeightMm: 297 },
+  { id: "LETTER", labelKey: "settings.formatLetter", widthMm: 216, minHeightMm: 279 },
+  { id: "THERMAL_80", labelKey: "settings.formatThermal80", widthMm: 80, minHeightMm: 180 },
 ];
+
+export function getInvoiceFormatLabel(formatId, locale = DEFAULT_LOCALE) {
+  const format = INVOICE_FORMATS.find((f) => f.id === formatId) ?? INVOICE_FORMATS[0];
+  return translate(format.labelKey, locale);
+}
 
 export function getInvoiceFormat(formatId) {
   return INVOICE_FORMATS.find((f) => f.id === formatId) ?? INVOICE_FORMATS[0];

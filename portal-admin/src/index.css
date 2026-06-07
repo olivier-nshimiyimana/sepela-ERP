@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   color-scheme: dark;
   font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -20,23 +22,21 @@
 
 html,
 body {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
   margin: 0;
   overflow-x: hidden;
-  overflow-y: auto;
 }
 
 #root {
-  width: calc(100vw - 16px);
+  width: min(100vw - 16px, 100%);
   max-width: none;
   margin: 0 auto;
   padding: 8px 0 12px;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+  min-height: 100dvh;
+  box-sizing: border-box;
 }
 
 a {
@@ -54,6 +54,17 @@ code {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 0.55rem;
   padding: 0.15rem 0.4rem;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 ::selection {

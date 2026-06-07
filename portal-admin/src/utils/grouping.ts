@@ -1,3 +1,4 @@
+import { industryProfileLabel } from "../constants/industryProfiles";
 import type { Merchant, Operator, SyncIngestion } from "../types";
 
 const ROLE_ORDER = ["boss", "manager", "cashier"];
@@ -76,7 +77,14 @@ export function filterMerchants(merchants: Merchant[], query: string) {
   if (!q) return merchants;
 
   return merchants.filter((merchant) => {
-    if (matchesSearch([merchant.code, merchant.name, merchant.status], q)) return true;
+    if (
+      matchesSearch(
+        [merchant.code, merchant.name, merchant.status, merchant.industryProfile, industryProfileLabel(merchant.industryProfile)],
+        q
+      )
+    ) {
+      return true;
+    }
     return merchant.branches.some(
       (branch) =>
         matchesSearch([branch.code, branch.name, branch.city, branch.countryCode, branch.status], q) ||

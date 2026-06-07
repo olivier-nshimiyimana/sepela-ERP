@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { CreditCard, Search } from "lucide-react";
+import { CreditCard, FileText, Search } from "lucide-react";
+import CartDraftsModal from "./CartDraftsModal";
 import CartTable from "./CartTable";
 import ExpiryAlertsBanner from "./ExpiryAlertsBanner";
 import PaymentModal from "./PaymentModal";
@@ -7,15 +8,20 @@ import ProductGrid from "./ProductGrid";
 import { can, PERMISSIONS } from "../auth/permissions";
 import { usePosKeyboard } from "../hooks/usePosKeyboard";
 import { filterProductsBySearch } from "../utils/productSearch";
+import DualCurrencyAmount from "./DualCurrencyAmount";
 import { buildFefoCatalog, buildFefoCartLine } from "../utils/fefo";
+import { useLocale } from "../contexts/LocaleContext";
 
 const Box = "d" + "iv";
 
 export default function PosScreen({
   user,
+  merchantCode,
+  sessionSalesUSD = 0,
   products,
   customers,
   exchangeRate,
+  primaryCurrency,
   expiryAlertDays,
   cart,
   totalUSD,
@@ -27,8 +33,10 @@ export default function PosScreen({
   onProforma,
   onOpenProducts,
 }) {
+  const { t } = useLocale();
   const [searchTerm, setSearchTerm] = useState("");
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [isDraftsOpen, setIsDraftsOpen] = useState(false);
   const searchRef = useRef(null);
 
   const showExpiryAlerts = can(user.role, PERMISSIONS.MANAGE_PRODUCTS);
@@ -132,6 +140,13 @@ export default function PosScreen({
     upsertLine(result.line);
   };
 
+  const handleLoadDraft = (draftCart) => {
+    if (cart.length > 0 && !window.confirm(t("pos.replaceDraftConfirm"))) {
+      return;
+    }
+    replaceCart(draftCart);
+  };
+
   const openPayment = useCallback(() => {
     const refreshed = [];
     for (const line of cart) {
@@ -177,15 +192,14 @@ export default function PosScreen({
 
   return (
     <>
-      {showExpiryAlerts && (
-        <ExpiryAlertsBanner
-          products={products}
-          expiryAlertDays={expiryAlertDays}
-          onManageProducts={onOpenProducts}
-        />
-      )}
-
-      <Box className="flex flex-1 overflow-hidden">
+      <Box className="flex flex-1 overflow-hidden relative">
+        {showExpiryAlerts && (
+          <ExpiryAlertsBanner
+            products={products}
+            expiryAlertDays={expiryAlertDays}
+            onManageProducts={onOpenProducts}
+          />
+        )}
         <section className="flex-1 flex flex-col bg-[#0f0f0f]">
           <Box className="p-4 border-b border-gray-900 flex gap-2">
             <Box className="relative flex-1">
@@ -193,7 +207,7 @@ export default function PosScreen({
               <input
                 ref={searchRef}
                 type="text"
-                placeholder="Search name, lot… multi-word (Enter add / pay, F4)"
+                placeholder={t("pos.searchPlaceholder")}
                 className="w-full bg-[#1a1a1a] border border-gray-800 rounded-md py-2 pl-10 pr-4 focus:outline-none focus:border-blue-500"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -206,6 +220,8 @@ export default function PosScreen({
           <Box className="flex-1 overflow-auto p-4">
             <CartTable
               cart={cart}
+              exchangeRate={exchangeRate}
+              primaryCurrency={primaryCurrency}
               onIncrement={handleIncrement}
               onDecrement={handleDecrement}
               onSetQty={handleSetQty}
@@ -219,6 +235,8 @@ export default function PosScreen({
             <ProductGrid
               products={catalogProducts}
               searchTerm={searchTerm}
+              exchangeRate={exchangeRate}
+              primaryCurrency={primaryCurrency}
               expiryAlertDays={expiryAlertDays}
               onAdd={handleAdd}
             />
@@ -231,52 +249,95 @@ export default function PosScreen({
               disabled={cart.length === 0}
               className="h-10 text-xs text-purple-300 uppercase font-bold border border-purple-800 rounded disabled:opacity-40 hover:bg-purple-950/40"
             >
-              Proforma quote
+              {t("pos.proforma")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsDraftsOpen(true)}
+              className="h-10 text-xs text-cyan-300 uppercase font-bold border border-cyan-900 rounded hover:bg-cyan-950/40 flex items-center justify-center gap-2"
+            >
+              <FileText size={14} />
+              {t("pos.drafts")}
             </button>
             <button
               type="button"
               onClick={() => {
-                if (cart.length === 0 || window.confirm("Clear this sale?")) {
+                if (cart.length === 0 || window.confirm(t("pos.clearSaleConfirm"))) {
                   clearCart();
                 }
               }}
               className="h-10 text-xs text-red-500 uppercase font-bold border border-red-900 rounded"
             >
-              Clear sale
+              {t("pos.clearSale")}
             </button>
             <button
               type="button"
               onClick={openPayment}
               disabled={cart.length === 0}
-              title="Payment (F4 or Enter)"
+              title={`${t("pos.payment")} (F4)`}
               className="h-24 bg-green-600 hover:bg-green-700 disabled:bg-gray-800 rounded flex flex-col items-center justify-center shadow-lg active:scale-95 transition-all"
             >
               <CreditCard size={32} />
-              <span className="text-xl font-black mt-1 uppercase">Payment</span>
-              <span className="text-[9px] text-green-200/80 mt-0.5 font-bold">F4 · Enter</span>
+              <span className="text-xl font-black mt-1 uppercase">{t("pos.payment")}</span>
+              <span className="text-[9px] text-green-200/80 mt-0.5 font-bold">{t("pos.paymentHint")}</span>
             </button>
           </Box>
         </aside>
       </Box>
 
-      <footer className="bg-[#1a1a1a] p-5 border-t-4 border-blue-600 flex justify-between items-center shrink-0">
+      <footer className="bg-[#1a1a1a] p-5 border-t-4 border-blue-600 flex justify-between items-end gap-6 shrink-0">
         <Box>
-          <p className="text-[10px] uppercase font-bold text-gray-500">Total USD</p>
-          <h2 className="text-4xl font-black italic">${totalUSD.toFixed(2)}</h2>
+          <p className="text-[10px] uppercase font-bold text-gray-500">{t("pos.currentSale")}</p>
+          <DualCurrencyAmount
+            amountUsd={totalUSD}
+            exchangeRate={exchangeRate}
+            primaryCurrency={primaryCurrency}
+            size="xl"
+            primaryClassName="italic text-green-400"
+          />
         </Box>
-        <Box className="text-right">
-          <p className="text-[10px] uppercase font-bold text-gray-500 tracking-[0.2em]">Total CDF</p>
-          <h2 className="text-3xl font-bold text-green-500 italic">
-            {(totalUSD * exchangeRate).toLocaleString()} FC
-          </h2>
+        <Box className="text-center hidden sm:block">
+          <p className="text-[10px] uppercase font-bold text-amber-500/90 tracking-[0.15em]">
+            {t("pos.sessionSales")} · {t("pos.sessionSalesHint")}
+          </p>
+          <DualCurrencyAmount
+            amountUsd={sessionSalesUSD}
+            exchangeRate={exchangeRate}
+            primaryCurrency={primaryCurrency}
+            size="lg"
+            align="center"
+            primaryClassName="text-amber-400"
+          />
+        </Box>
+        <Box className="text-right sm:hidden">
+          <p className="text-[10px] uppercase font-bold text-amber-500/90">{t("pos.sessionSales")}</p>
+          <DualCurrencyAmount
+            amountUsd={sessionSalesUSD}
+            exchangeRate={exchangeRate}
+            primaryCurrency={primaryCurrency}
+            size="sm"
+            align="right"
+            primaryClassName="text-amber-400"
+          />
         </Box>
       </footer>
+
+      <CartDraftsModal
+        isOpen={isDraftsOpen}
+        merchantCode={merchantCode}
+        operatorId={user?.id}
+        operatorName={user?.displayName}
+        cart={cart}
+        onClose={() => setIsDraftsOpen(false)}
+        onLoadDraft={handleLoadDraft}
+      />
 
       <PaymentModal
         isOpen={isPaymentOpen}
         customers={customers}
         totalUSD={totalUSD}
         exchangeRate={exchangeRate}
+        primaryCurrency={primaryCurrency}
         onClose={() => setIsPaymentOpen(false)}
         onComplete={async (summary, options) => {
           const ok = await onPaymentComplete(summary, cart, options);

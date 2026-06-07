@@ -63,12 +63,15 @@ export function labelValue(label, value, width = RECEIPT_WIDTH) {
 }
 
 /** Qty | item name | line total (receipt line items). */
-export function formatReceiptItemLine(qty, name, lineTotalUsd, width = RECEIPT_WIDTH) {
+export function formatReceiptItemLine(qty, name, lineTotalUsd, width = RECEIPT_WIDTH, amountLabel = null) {
   const qtyCol = 4;
   const amtCol = 10;
   const nameCol = width - qtyCol - amtCol - 2;
   const qtyStr = padStart(String(qty), qtyCol);
-  const amtStr = padStart(`$${Number(lineTotalUsd).toFixed(2)}`, amtCol);
+  const amtStr = padStart(
+    amountLabel ?? `$${Number(lineTotalUsd).toFixed(2)}`,
+    amtCol
+  );
   const nameStr = padEnd(String(name).slice(0, nameCol), nameCol);
   return `${qtyStr} ${nameStr} ${amtStr}`;
 }

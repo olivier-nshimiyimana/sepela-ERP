@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
+import { formatDualCurrency } from "../utils/currency";
+import { useLocale } from "../contexts/LocaleContext";
 
 function CartQtyInput({ item, maxStock, onSetQty }) {
   const [draft, setDraft] = useState(null);
@@ -18,7 +20,7 @@ function CartQtyInput({ item, maxStock, onSetQty }) {
       max={maxStock}
       inputMode="numeric"
       aria-label={`Quantity for ${item.name}`}
-      className="w-12 h-7 text-center font-mono text-sm bg-[#0a0a0a] border border-gray-700 rounded focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+      className="w-12 h-7 text-center font-mono text-sm bg-[#0a0a0a] border border-gray-700 rounded focus:border-blue-500 outline-none"
       value={display}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
@@ -35,14 +37,18 @@ function CartQtyInput({ item, maxStock, onSetQty }) {
 
 export default function CartTable({
   cart,
+  exchangeRate,
+  primaryCurrency,
   onIncrement,
   onDecrement,
   onSetQty,
   onRemove,
 }) {
+  const { t } = useLocale();
+
   if (cart.length === 0) {
     return (
-      <p className="text-center text-gray-600 text-sm py-12">Cart is empty — tap a product to add</p>
+      <p className="text-center text-gray-600 text-sm py-12">{t("pos.cartEmpty")}</p>
     );
   }
 
@@ -50,9 +56,9 @@ export default function CartTable({
     <table className="w-full text-left">
       <thead>
         <tr className="text-gray-500 uppercase text-[10px] tracking-widest border-b border-gray-800">
-          <th className="pb-2">Product</th>
-          <th className="pb-2">Qty</th>
-          <th className="pb-2 text-right">Total</th>
+          <th className="pb-2">{t("common.product")}</th>
+          <th className="pb-2">{t("common.qty")}</th>
+          <th className="pb-2 text-right">{t("common.total")}</th>
           <th className="pb-2 w-28" />
         </tr>
       </thead>
@@ -72,9 +78,9 @@ export default function CartTable({
                         key={`${allocation.productId}-${index}`}
                         className="block text-[10px] font-mono text-gray-600"
                       >
-                        Batch {index + 1}: x{allocation.qty}
-                        {allocation.lotNumber ? ` · Lot ${allocation.lotNumber}` : ""}
-                        {allocation.expirationDate ? ` · Exp ${allocation.expirationDate}` : ""}
+                        {t("pos.batch", { n: index + 1 })}: x{allocation.qty}
+                        {allocation.lotNumber ? ` · ${t("pos.lot")} ${allocation.lotNumber}` : ""}
+                        {allocation.expirationDate ? ` · ${t("pos.exp")} ${allocation.expirationDate}` : ""}
                       </span>
                     ))}
                   </span>
@@ -102,7 +108,7 @@ export default function CartTable({
                 </span>
               </td>
               <td className="py-3 text-right font-bold text-blue-400">
-                ${(item.price * item.qty).toFixed(2)}
+                {formatDualCurrency(item.price * item.qty, exchangeRate, primaryCurrency).primary}
               </td>
               <td className="py-3 text-right">
                 <button

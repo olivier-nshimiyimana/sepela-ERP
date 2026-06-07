@@ -1,4 +1,5 @@
 import { CREATE_TABLES_SQL, SCHEMA_VERSION } from "./schema";
+import { migrateInventoryBreakdown } from "./inventoryBreakdown";
 import { migrateTenantColumns } from "./tenant";
 import { dbExecute, dbSelect } from "./sqlParams";
 
@@ -39,6 +40,7 @@ export async function runSchemaMigrations(db) {
   await ensureColumn(db, "customers", "email", "TEXT");
   await ensureColumn(db, "customers", "tax_number", "TEXT");
   await migrateTenantColumns(db, ensureColumn);
+  await migrateInventoryBreakdown(db);
   const ts = new Date().toISOString();
   await dbExecute(
     db,

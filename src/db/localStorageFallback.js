@@ -4,7 +4,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { normalizeProducts, validateProductFields } from "../data/defaultProducts";
-import { DEFAULT_INVOICE_PROFILE } from "../data/defaultInvoiceProfile";
+import { DEFAULT_INVOICE_PROFILE, resolveInvoiceProfile } from "../data/defaultInvoiceProfile";
+import { DEFAULT_PRIMARY_CURRENCY, normalizePrimaryCurrency } from "../utils/currency";
+import { DEFAULT_LOCALE, normalizeLocale } from "../i18n";
 import { DEFAULT_EXPIRY_ALERT_DAYS } from "../utils/productExpiry";
 import {
   findMatchingCustomer,
@@ -114,6 +116,11 @@ export function useLocalStorageData() {
   const [suppliersRaw, setSuppliers] = useLocalStorage("sepela-suppliers", []);
   const [purchasesRaw, setPurchases] = useLocalStorage("sepela-purchases", []);
   const [exchangeRate, setExchangeRate] = useLocalStorage("sepela-exchange-rate", 2850);
+  const [primaryCurrency, setPrimaryCurrency] = useLocalStorage(
+    "sepela-primary-currency",
+    DEFAULT_PRIMARY_CURRENCY
+  );
+  const [language, setLanguage] = useLocalStorage("sepela-language", DEFAULT_LOCALE);
   const [expiryAlertDays, setExpiryAlertDays] = useLocalStorage(
     "sepela-expiry-alert-days",
     DEFAULT_EXPIRY_ALERT_DAYS
@@ -211,8 +218,8 @@ export function useLocalStorageData() {
     [purchasesRaw]
   );
   const invoiceProfile = useMemo(
-    () => ({ ...DEFAULT_INVOICE_PROFILE, ...invoiceProfileRaw }),
-    [invoiceProfileRaw]
+    () => resolveInvoiceProfile({ ...DEFAULT_INVOICE_PROFILE, ...invoiceProfileRaw }, language),
+    [invoiceProfileRaw, language]
   );
   const cloudSync = useMemo(
     () => ({
@@ -904,6 +911,9 @@ export function useLocalStorageData() {
     suppliers,
     purchases,
     exchangeRate,
+    primaryCurrency: normalizePrimaryCurrency(primaryCurrency),
+    language: normalizeLocale(language),
+    setLanguage,
     expiryAlertDays,
     invoiceProfile,
     backupHistory: {
@@ -927,6 +937,7 @@ export function useLocalStorageData() {
     updateCustomer,
     deleteCustomer,
     setExchangeRate,
+    setPrimaryCurrency: (value) => setPrimaryCurrency(normalizePrimaryCurrency(value)),
     setExpiryAlertDays,
     setInvoiceProfileRaw,
     setLastBackupExportAt,

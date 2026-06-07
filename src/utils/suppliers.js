@@ -1,3 +1,5 @@
+import { appError, DEFAULT_LOCALE } from "../i18n";
+
 export function normalizeSupplierFields(fields = {}) {
   return {
     id: fields.id ?? null,
@@ -7,10 +9,10 @@ export function normalizeSupplierFields(fields = {}) {
   };
 }
 
-export function validateSupplierFields(fields = {}) {
+export function validateSupplierFields(fields = {}, locale = DEFAULT_LOCALE) {
   const data = normalizeSupplierFields(fields);
   if (!data.name) {
-    return { ok: false, error: "Supplier name is required." };
+    return { ok: false, error: appError("supplierNameRequired", locale) };
   }
   return { ok: true, data };
 }
@@ -37,9 +39,9 @@ export function findMatchingSupplier(suppliers = [], fields = {}) {
   return suppliers.find((supplier) => supplierNameKey(supplier.name) === key) ?? null;
 }
 
-export function validatePurchaseItems(items = [], products = []) {
+export function validatePurchaseItems(items = [], products = [], locale = DEFAULT_LOCALE) {
   if (!Array.isArray(items) || items.length === 0) {
-    return { ok: false, error: "Add at least one purchase item." };
+    return { ok: false, error: appError("purchaseItemsRequired", locale) };
   }
 
   const productIds = new Set(products.map((product) => product.id));
@@ -55,19 +57,19 @@ export function validatePurchaseItems(items = [], products = []) {
     const productName = String(item.productName ?? "").trim();
 
     if (!productId || !productIds.has(productId)) {
-      return { ok: false, error: `Line ${i + 1}: choose a valid product.` };
+      return { ok: false, error: appError("purchaseLineProduct", locale, { line: i + 1 }) };
     }
     if (Number.isNaN(qty) || qty <= 0) {
-      return { ok: false, error: `Line ${i + 1}: quantity must be greater than zero.` };
+      return { ok: false, error: appError("purchaseLineQty", locale, { line: i + 1 }) };
     }
     if (Number.isNaN(unitCost) || unitCost < 0) {
-      return { ok: false, error: `Line ${i + 1}: unit cost must be zero or more.` };
+      return { ok: false, error: appError("purchaseLineCost", locale, { line: i + 1 }) };
     }
     if (!lotNumber || lotNumber.length < 2) {
-      return { ok: false, error: `Line ${i + 1}: lot number is required.` };
+      return { ok: false, error: appError("purchaseLineLot", locale, { line: i + 1 }) };
     }
     if (!expirationDate) {
-      return { ok: false, error: `Line ${i + 1}: expiration date is required.` };
+      return { ok: false, error: appError("purchaseLineExpiry", locale, { line: i + 1 }) };
     }
 
     normalized.push({

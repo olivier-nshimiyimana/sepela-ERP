@@ -1,3 +1,5 @@
+import { appError, DEFAULT_LOCALE } from "../i18n";
+
 export const PRODUCT_IMPORT_COLUMNS = [
   "id",
   "name",
@@ -5,6 +7,11 @@ export const PRODUCT_IMPORT_COLUMNS = [
   "expiration_date",
   "price",
   "stock",
+  "buy_unit",
+  "buy_unit_cost",
+  "qty_per_unit",
+  "item_size_label",
+  "reorder_level_items",
   "updated_at",
   "sync_status",
 ];
@@ -49,7 +56,7 @@ function escapeCsvValue(value) {
   return raw;
 }
 
-export function parseProductImportCsv(text) {
+export function parseProductImportCsv(text, locale = DEFAULT_LOCALE) {
   const lines = String(text ?? "")
     .replace(/^\uFEFF/, "")
     .split(/\r?\n/)
@@ -59,7 +66,7 @@ export function parseProductImportCsv(text) {
   if (lines.length < 2) {
     return {
       ok: false,
-      error: `CSV must include a header and at least one product row. Expected columns: ${PRODUCT_IMPORT_COLUMNS.join(", ")}`,
+      error: appError("csvHeaderAndRow", locale, { header: PRODUCT_IMPORT_COLUMNS.join(", ") }),
     };
   }
 
@@ -68,7 +75,7 @@ export function parseProductImportCsv(text) {
   if (header.join(",") !== exactHeader) {
     return {
       ok: false,
-      error: `CSV header must be exactly: ${exactHeader}`,
+      error: appError("csvHeader", locale, { header: exactHeader }),
     };
   }
 
@@ -99,7 +106,12 @@ export function buildProductImportCsv(products = []) {
       product.lotNumber ?? "",
       product.expirationDate ?? "",
       product.price ?? "",
-      product.stock ?? "",
+      product.stockQuantityItems ?? product.stock ?? "",
+      product.buyUnit ?? "Unit",
+      product.buyUnitCost ?? 0,
+      product.qtyPerUnit ?? 1,
+      product.itemSizeLabel ?? "",
+      product.reorderLevelItems ?? 0,
       product.updatedAt ?? "",
       product.syncStatus ?? "PENDING",
     ].map(escapeCsvValue);

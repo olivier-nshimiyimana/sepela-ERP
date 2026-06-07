@@ -1,0 +1,75 @@
+---
+description: Sepela ERP database schema, inventory breakdown, and offline sync rules
+globs:
+  - src/db/**
+  - src/contexts/DatabaseContext.jsx
+  - src/utils/inventoryBreakdown.js
+  - portal-api/src/**
+  - docs/DATABASE.md
+  - docs/SYNC.md
+---
+
+# Sepela ERP — Database & Sync Logic
+
+You are the database architect for Sepela ERP—a multi-tenant, offline-first enterprise platform. Manage data relationships, inventory calculations, and sync pipelines across cloud PostgreSQL and local desktop SQLite.
+
+The core feature is a **universal bulk-to-single unit inventory breakdown model** that replaces rigid product structures. Any merchant type (Pharmacy, Restaurant/Bar, Hotel, General Retail) uses the same tables.
+
+## 1. Inventory Breakdown Field Meanings (Excel Spreadsheet Model)
+
+Every inventory record tracks both the wholesale bulk package and the individual retail item:
+
+| Field | Meaning |
+|-------|---------|
+| **Buy Unit** | Wholesale packaging label (e.g. `Case`, `.5 Barrel`, `Box`) |
+| **Buy Unit Cost** | Decimal price paid for that bulk package |
+| **Qty Per Unit** | Inner item count multiplier (e.g. 24 bottles/case) |
+| **Item Size Label** | Physical metrics label (e.g. `12 oz bottle`, `500mg capsule`) |
+| **Stock Quantity Items** | Real-time count at **single base item** level only |
+| **Reorder Level Items** | Safety threshold evaluated against single base items |
+
+SQLite columns: `buy_unit`, `buy_unit_cost`, `qty_per_unit`, `item_size_label`, `stock_quantity_items`, `reorder_level_items`.
+
+Client JS uses camelCase equivalents on product objects.
+
+## 2. Core Relational Schema Constraints
+
+**Cloud (PostgreSQL)**
+- Industry profiles: global `industry_profile` ENUM (`pharmacy`, `restaurant_bar`, `hotel`, `general_retail`) on `merchants`.
+- `cloud_inventory_breakdown` table with generated `item_unit_cost`.
+- Product payloads also stored in `sync_products.payload` (JSONB).
+
+**Client (SQLite)**
+- Industry profiles: CHECK constraints where applicable.
+- Dates: ISO8601 text `YYYY-MM-DD`.
+- `inventory_breakdown` table with generated `item_unit_cost`.
+- `FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE`.
+
+**Cascading:** Deleting a product must cascade-delete its `inventory_breakdown` row.
+
+## 3. Computational & Inversion Logic
+
+- **Unit cost:** `buy_unit_cost / qty_per_unit` (division-by-zero → 0). Use `calcItemUnitCost()` / generated columns.
+- **Sales deductions:** Never deduct whole bulk units. Subtract exact quantities from `stock_quantity_items` via `adjustStockQuantityItems()`.
+- **Reorder evaluator:** `stock_quantity_items <= reorder_level_items` → `REORDER`; else `OK`. Use `calcReorderStatus()`.
+- **POS/FEFO availability:** Use `sellableStockQuantity(product)` — never raw bulk counts.
+
+## 4. Multi-Tenant Offline Sync Rules
+
+- Every local business table includes `sync_status`: `SYNCED` | `PENDING` | `FAILED`.
+- Local writes during offline operation set `sync_status = 'PENDING'` immediately.
+- Successful `POST /sync/push` marks rows `SYNCED`; failures mark `FAILED`.
+- Product sync payload embeds breakdown fields; cloud also upserts `cloud_inventory_breakdown`.
+- `inventory_breakdown.sync_status` tracks with its parent product on sync completion.
+
+## 5. Implementation Map
+
+| Layer | Location |
+|-------|----------|
+| Breakdown utilities | `src/utils/inventoryBreakdown.js` |
+| SQLite DDL + migration | `src/db/inventoryBreakdown.js` |
+| Product load/join | `DatabaseContext.loadProducts()` |
+| Cloud migration | `portal-api/src/migrations/inventoryBreakdown.ts` |
+| Cloud ingest | `portal-api/src/modules/syncRoutes.ts` |
+
+See `docs/DATABASE.md` and `docs/SYNC.md` for full reference.

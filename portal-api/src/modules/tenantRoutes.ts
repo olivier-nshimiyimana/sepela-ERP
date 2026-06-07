@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { withTransaction } from "../db.js";
+import { DEFAULT_INDUSTRY_PROFILE, industryProfileSchema } from "../industryProfile.js";
 import { assertPortalToken } from "./auth.js";
 import { fetchLeaseStatusByDevice, fetchLeaseStatusByToken } from "./deviceLease.js";
 import { signOfflineLease } from "./lease.js";
@@ -8,6 +9,7 @@ import { signOfflineLease } from "./lease.js";
 const merchantBody = z.object({
   merchantCode: z.string().min(2).max(40),
   merchantName: z.string().min(2).max(120),
+  industryProfile: industryProfileSchema.default(DEFAULT_INDUSTRY_PROFILE),
   branchCode: z.string().min(2).max(40),
   branchName: z.string().min(2).max(120),
   city: z.string().max(120).optional(),
@@ -112,6 +114,7 @@ export const tenantRoutes: FastifyPluginAsync = async (app) => {
              m.code,
              m.name,
              m.status,
+             m.industry_profile,
              m.created_at,
              count(DISTINCT b.id)::int AS branch_count,
              count(DISTINCT d.id)::int AS device_count
@@ -183,6 +186,7 @@ export const tenantRoutes: FastifyPluginAsync = async (app) => {
         code: row.code,
         name: row.name,
         status: row.status,
+        industryProfile: row.industry_profile ?? DEFAULT_INDUSTRY_PROFILE,
         createdAt: row.created_at,
         branchCount: row.branch_count,
         deviceCount: row.device_count,
@@ -279,11 +283,14 @@ export const tenantRoutes: FastifyPluginAsync = async (app) => {
 
     const result = await withTransaction(async (client) => {
       const merchant = await client.query(
-        `INSERT INTO merchants (code, name)
-         VALUES ($1, $2)
-         ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, updated_at = NOW()
-         RETURNING id, code, name`,
-        [body.merchantCode, body.merchantName]
+        `INSERT INTO merchants (code, name, industry_profile)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (code) DO UPDATE SET
+           name = EXCLUDED.name,
+           industry_profile = EXCLUDED.industry_profile,
+           updated_at = NOW()
+         RETURNING id, code, name, industry_profile`,
+        [body.merchantCode, body.merchantName, body.industryProfile]
       );
 
       const branch = await client.query(

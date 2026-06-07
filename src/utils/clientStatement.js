@@ -1,3 +1,12 @@
+import { DEFAULT_LOCALE, translate } from "../i18n";
+import {
+  DEFAULT_PRIMARY_CURRENCY,
+  formatMoneyPairLine,
+  formatMoneyPrimary,
+  normalizePrimaryCurrency,
+  saleExchangeRate,
+} from "./currency";
+
 export function summarizeClientSales(sales = []) {
   const invoiceCount = sales.length;
   const refundedSales = sales.filter((sale) => sale.status === "refunded");
@@ -48,13 +57,15 @@ export function filterClientSalesByDateRange(sales = [], { from = "", to = "" } 
   });
 }
 
-export function formatClientStatementRange({ from = "", to = "" } = {}) {
+export function formatClientStatementRange({ from = "", to = "" } = {}, locale = DEFAULT_LOCALE) {
   const fromText = String(from ?? "").trim();
   const toText = String(to ?? "").trim();
-  if (fromText && toText) return `${fromText} to ${toText}`;
-  if (fromText) return `From ${fromText}`;
-  if (toText) return `Up to ${toText}`;
-  return "All time";
+  if (fromText && toText) {
+    return translate("clients.rangeFromTo", locale, { from: fromText, to: toText });
+  }
+  if (fromText) return translate("clients.rangeFrom", locale, { from: fromText });
+  if (toText) return translate("clients.rangeUpTo", locale, { to: toText });
+  return translate("clients.rangeAllTime", locale);
 }
 
 function formatStatementDate(value) {
@@ -65,25 +76,41 @@ function formatStatementDate(value) {
   }
 }
 
-export function formatClientStatementText({ customer, sales = [], profile = {}, range = {} }) {
+export function formatClientStatementText({
+  customer,
+  sales = [],
+  profile = {},
+  range = {},
+  exchangeRate = 2850,
+  primaryCurrency = DEFAULT_PRIMARY_CURRENCY,
+  locale = DEFAULT_LOCALE,
+}) {
   const summary = summarizeClientSales(sales);
+  const primary = normalizePrimaryCurrency(primaryCurrency);
+  const rate = Number(exchangeRate) > 0 ? Number(exchangeRate) : 2850;
   const companyName = profile.companyName?.trim() || "Sepela ERP";
-  const rangeLabel = formatClientStatementRange(range);
+  const rangeLabel = formatClientStatementRange(range, locale);
+  const t = (key, params) => translate(key, locale, params);
+
   const lines = [
-    `${companyName} - Client Statement`,
-    `Client: ${customer?.name ?? "Unknown client"}`,
-    customer?.phone ? `Phone: ${customer.phone}` : null,
-    customer?.taxNumber ? `Tax: ${customer.taxNumber}` : null,
-    customer?.email ? `Email: ${customer.email}` : null,
-    customer?.address ? `Address: ${customer.address}` : null,
+    t("clients.statementTextTitle", { company: companyName }),
+    `${t("common.client")}: ${customer?.name ?? t("clients.unknownClient")}`,
+    customer?.phone ? `${t("common.phone")}: ${customer.phone}` : null,
+    customer?.taxNumber ? `${t("payment.taxNumber")}: ${customer.taxNumber}` : null,
+    customer?.email ? `${t("common.email")}: ${customer.email}` : null,
+    customer?.address ? `${t("common.address")}: ${customer.address}` : null,
     "",
-    `Period: ${rangeLabel}`,
-    `Invoices: ${summary.invoiceCount}`,
-    `Refunded: ${summary.refundedCount}`,
-    `Gross billed: $${summary.grossUSD.toFixed(2)} / ${Math.round(summary.grossCDF).toLocaleString()} FC`,
-    `Net after refunds: $${summary.netUSD.toFixed(2)} / ${Math.round(summary.netCDF).toLocaleString()} FC`,
+    `${t("clients.period")} ${rangeLabel}`,
+    `${t("clients.invoicesLabel")}: ${summary.invoiceCount}`,
+    t("clients.refundedCount", { count: summary.refundedCount }),
+    t("clients.grossBilledLine", {
+      amount: formatMoneyPairLine(summary.grossUSD, rate, primary),
+    }),
+    t("clients.netAfterRefundsLine", {
+      amount: formatMoneyPairLine(summary.netUSD, rate, primary),
+    }),
     "",
-    "Recent invoices:",
+    t("clients.recentInvoices"),
   ];
 
   const recentSales = [...sales]
@@ -91,17 +118,23 @@ export function formatClientStatementText({ customer, sales = [], profile = {}, 
     .slice(0, 20);
 
   if (recentSales.length === 0) {
-    lines.push("- No invoices yet.");
+    lines.push(t("clients.noInvoicesLine"));
   } else {
     for (const sale of recentSales) {
       lines.push(
-        `- ${sale.invoiceNumber ?? sale.id} | ${formatStatementDate(sale.timestamp)} | $${(
-          sale.totalUSD ?? 0
-        ).toFixed(2)} | ${sale.status === "refunded" ? "REFUNDED" : "COMPLETED"}`
+        t("clients.invoiceLine", {
+          invoice: sale.invoiceNumber ?? sale.id,
+          date: formatStatementDate(sale.timestamp),
+          amount: formatMoneyPrimary(sale.totalUSD ?? 0, saleExchangeRate(sale, rate), primary),
+          status:
+            sale.status === "refunded"
+              ? t("clients.statusRefunded")
+              : t("clients.statusCompletedUpper"),
+        })
       );
     }
     if (sales.length > recentSales.length) {
-      lines.push(`- ... ${sales.length - recentSales.length} more invoice(s)`);
+      lines.push(t("clients.moreInvoices", { count: sales.length - recentSales.length }));
     }
   }
 

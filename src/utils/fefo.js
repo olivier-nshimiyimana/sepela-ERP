@@ -1,3 +1,4 @@
+import { sellableStockQuantity } from "./inventoryBreakdown";
 import { isProductSellable, parseExpiryDate } from "./productExpiry";
 
 function normalizePrice(price) {
@@ -56,7 +57,7 @@ export function getFefoAvailability({
   const availableBatches = familyProducts
     .map((product) => {
       const reserved = reservedQtyForProduct(cart, product.id, excludeLineId);
-      const available = Math.max(0, (product.stock ?? 0) - reserved);
+      const available = Math.max(0, sellableStockQuantity(product) - reserved);
       return { ...product, available };
     })
     .filter((product) => product.available > 0 && isProductSellable(product, alertDays));

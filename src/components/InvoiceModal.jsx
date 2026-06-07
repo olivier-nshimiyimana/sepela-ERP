@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Copy, Download, Printer, X } from "lucide-react";
 import InvoicePrintBody from "./InvoicePrintBody";
+import { useCurrency } from "../contexts/CurrencyContext";
+import { useLocale } from "../contexts/LocaleContext";
 import { formatInvoicePlainText } from "../utils/invoiceText";
-import { getInvoiceFormat, INVOICE_FORMATS } from "../utils/invoiceFormats";
+import { getInvoiceFormat, getInvoiceFormatLabel, INVOICE_FORMATS } from "../utils/invoiceFormats";
 
 const Box = "d" + "iv";
 
@@ -42,6 +44,8 @@ function trimCanvasBottomWhitespace(canvas, opts = {}) {
 }
 
 export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptContext, onClose }) {
+  const { primaryCurrency, exchangeRate } = useCurrency();
+  const { t, locale } = useLocale();
   const previewRef = useRef(null);
   const exportRef = useRef(null);
   const [selectedFormat, setSelectedFormat] = useState(
@@ -57,7 +61,12 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
   const format = getInvoiceFormat(selectedFormat);
   if (!isOpen || !sale) return null;
 
-  const plain = formatInvoicePlainText(sale, invoiceProfile, receiptContext ?? {});
+  const plain = formatInvoicePlainText(sale, invoiceProfile, {
+    ...(receiptContext ?? {}),
+    primaryCurrency,
+    exchangeRate,
+    locale,
+  });
 
   const handlePrint = () => {
     const wrap = exportRef.current ?? previewRef.current;
@@ -65,7 +74,7 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
     const w = window.open("", "_blank", "width=420,height=720");
     if (!w) return;
     const root = wrap.innerHTML;
-    w.document.write(`<!DOCTYPE html><html><head><title>Invoice ${sale.invoiceNumber ?? sale.id}</title>
+    w.document.write(`<!DOCTYPE html><html><head><title>${t("invoiceModal.printTitle", { number: sale.invoiceNumber ?? sale.id })}</title>
       <style>
         body { margin: 0; font-family: Georgia, serif; background: #fff; }
         .sheet {
@@ -88,9 +97,9 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(plain);
-      alert("Invoice copied to clipboard.");
+      alert(t("invoiceModal.copied"));
     } catch {
-      alert("Could not copy. Select text manually.");
+      alert(t("invoiceModal.copyFailed"));
     }
   };
 
@@ -110,7 +119,7 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
       ]);
       const JsPDF = jspdfMod.jsPDF ?? jspdfMod.default;
       if (typeof JsPDF !== "function") {
-        throw new Error("PDF library did not load (jsPDF).");
+        throw new Error(t("invoiceModal.pdfFailed", { error: "jsPDF" }));
       }
       const canvasRaw = await html2canvas(node, {
         scale: 2,
@@ -151,15 +160,15 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
         pdf.addImage(img, "PNG", 0, -yOff, imgWidth, imgHeight);
       }
       if (!pdf) {
-        throw new Error("Invoice capture was empty.");
+        throw new Error(t("invoiceModal.captureEmpty"));
       }
       const raw = String(sale.invoiceNumber ?? sale.id ?? "invoice");
       const safe = raw.replace(/[/\\:*?"<>|]/g, "-").trim().slice(0, 120) || "invoice";
       pdf.save(`${safe}.pdf`);
-      alert("Invoice PDF saved successfully.");
+      alert(t("invoiceModal.pdfSaved"));
     } catch (e) {
       console.error(e);
-      alert(`Could not save PDF: ${e?.message ?? e}`);
+      alert(t("invoiceModal.pdfFailed", { error: e?.message ?? e }));
     }
   };
 
@@ -168,10 +177,10 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
       <Box className="bg-[#1a1a1a] border border-gray-800 w-full max-w-4xl rounded-xl shadow-2xl flex flex-col max-h-[95vh]">
         <Box className="p-3 border-b border-gray-800 flex justify-between items-center shrink-0">
           <span className="font-bold text-white">
-            {receiptContext?.receiptType === "COPY" ? "Copy — " : ""}
-            {receiptContext?.receiptType === "PROFORMA" ? "Proforma — " : ""}
-            {receiptContext?.receiptType === "TRAINING" ? "Training — " : ""}
-            Invoice {sale.invoiceNumber ?? sale.id.slice(-10)}
+            {receiptContext?.receiptType === "COPY" ? t("invoiceModal.copyPrefix") : ""}
+            {receiptContext?.receiptType === "PROFORMA" ? t("invoiceModal.proformaPrefix") : ""}
+            {receiptContext?.receiptType === "TRAINING" ? t("invoiceModal.trainingPrefix") : ""}
+            {t("invoiceModal.title", { number: sale.invoiceNumber ?? sale.id.slice(-10) })}
           </span>
           <Box className="flex gap-2 items-center">
             <select
@@ -181,7 +190,7 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
             >
               {INVOICE_FORMATS.map((f) => (
                 <option key={f.id} value={f.id}>
-                  {f.label}
+                  {getInvoiceFormatLabel(f.id, locale)}
                 </option>
               ))}
             </select>
@@ -190,14 +199,14 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
               onClick={handleCopy}
               className="flex items-center gap-1 px-3 py-1.5 rounded border border-gray-600 text-xs font-bold uppercase text-gray-300 hover:bg-gray-800"
             >
-              <Copy size={14} /> Copy
+              <Copy size={14} /> {t("invoiceModal.copy")}
             </button>
             <button
               type="button"
               onClick={handlePrint}
               className="flex items-center gap-1 px-3 py-1.5 rounded bg-blue-600 text-xs font-bold uppercase hover:bg-blue-700"
             >
-              <Printer size={14} /> Print
+              <Printer size={14} /> {t("invoiceModal.print")}
             </button>
             <button
               type="button"
@@ -206,7 +215,7 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
             >
               <Download size={14} /> PDF
             </button>
-            <button type="button" onClick={onClose} className="p-2 text-gray-400 hover:text-white" aria-label="Close">
+            <button type="button" onClick={onClose} className="p-2 text-gray-400 hover:text-white" aria-label={t("common.close")}>
               <X size={20} />
             </button>
           </Box>

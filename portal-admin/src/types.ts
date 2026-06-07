@@ -28,11 +28,18 @@ export type Branch = {
   devices: Device[];
 };
 
+export type IndustryProfile =
+  | "pharmacy"
+  | "restaurant_bar"
+  | "hotel"
+  | "general_retail";
+
 export type Merchant = {
   id: string;
   code: string;
   name: string;
   status: string;
+  industryProfile: IndustryProfile;
   createdAt: string;
   branchCount: number;
   deviceCount: number;

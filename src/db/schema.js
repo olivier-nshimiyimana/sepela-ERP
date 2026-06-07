@@ -6,7 +6,7 @@ export const SYNC_STATUS = {
   FAILED: "FAILED",
 };
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const CREATE_TABLES_SQL = [
   `CREATE TABLE IF NOT EXISTS app_meta (

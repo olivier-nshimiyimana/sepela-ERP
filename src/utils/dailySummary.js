@@ -1,3 +1,10 @@
+import {
+  DEFAULT_PRIMARY_CURRENCY,
+  exchangeRateLabel,
+  formatMoneyPairLine,
+  formatMoneyPrimary,
+  normalizePrimaryCurrency,
+} from "./currency";
 import { aggregateSales, filterSalesByPeriod } from "./reportPeriods";
 import { getExpiryAlerts, getExpiryStatus } from "./productExpiry";
 
@@ -53,19 +60,21 @@ export function buildDailySummaryData({
   };
 }
 
-export function formatDailyWhatsAppSummary(data) {
+export function formatDailyWhatsAppSummary(data, primaryCurrency = DEFAULT_PRIMARY_CURRENCY) {
+  const primary = normalizePrimaryCurrency(primaryCurrency);
+  const rate = data.exchangeRate ?? 2850;
   const lines = [
     "SEPELA DAILY REPORT",
     `Date: ${data.dateLabel}`,
     `Transactions: ${data.stats.count}`,
-    `Sales: $${data.stats.totalUSD.toFixed(2)} / ${Math.round(data.stats.totalCDF).toLocaleString()} FC`,
+    `Sales: ${formatMoneyPairLine(data.stats.totalUSD, rate, primary)}`,
   ];
 
   const byMethod = Object.entries(data.stats.byMethod);
   if (byMethod.length > 0) {
     lines.push("Payment methods:");
     for (const [method, usd] of byMethod) {
-      lines.push(`- ${method}: $${usd.toFixed(2)}`);
+      lines.push(`- ${method}: ${formatMoneyPrimary(usd, rate, primary)}`);
     }
   }
 
@@ -81,9 +90,9 @@ export function formatDailyWhatsAppSummary(data) {
   lines.push(`- Expiring soon: ${data.expiringSoonCount}`);
   lines.push(`- Expired: ${data.expiredCount}`);
   lines.push(
-    `Closing stock: ${data.closingStock.productCount} products / ${data.closingStock.totalUnits} units / $${data.closingStock.totalValueUSD.toFixed(2)}`
+    `Closing stock: ${data.closingStock.productCount} products / ${data.closingStock.totalUnits} units / ${formatMoneyPrimary(data.closingStock.totalValueUSD, rate, primary)}`
   );
-  lines.push(`Rate: 1 USD = ${Math.round(data.exchangeRate).toLocaleString()} CDF`);
+  lines.push(`Rate: ${exchangeRateLabel(rate, primary)}`);
 
   return lines.join("\n");
 }

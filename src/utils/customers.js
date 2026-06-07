@@ -1,3 +1,5 @@
+import { appError, DEFAULT_LOCALE } from "../i18n";
+
 export function normalizeCustomerFields(fields = {}) {
   const name = String(fields.name ?? "").trim();
   const phoneRaw = String(fields.phone ?? "").trim();
@@ -14,19 +16,19 @@ export function normalizeCustomerFields(fields = {}) {
   };
 }
 
-export function validateCustomerFields(fields = {}) {
+export function validateCustomerFields(fields = {}, locale = DEFAULT_LOCALE) {
   const data = normalizeCustomerFields(fields);
   if (!data.name) {
-    return { ok: false, error: "Client name is required." };
+    return { ok: false, error: appError("clientNameRequired", locale) };
   }
   if (!data.phone) {
-    return { ok: false, error: "Client phone number is required." };
+    return { ok: false, error: appError("clientPhoneRequired", locale) };
   }
   if (!data.taxNumber) {
-    return { ok: false, error: "Client tax number is required." };
+    return { ok: false, error: appError("clientTaxRequired", locale) };
   }
   if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
-    return { ok: false, error: "Enter a valid client email address." };
+    return { ok: false, error: appError("clientEmailInvalid", locale) };
   }
   return { ok: true, data };
 }

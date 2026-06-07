@@ -5,12 +5,15 @@ import { Copy, Download, FileText, MessageCircle, Pencil, Plus, Printer, Search,
 import { isTauriRuntime } from "../db/client";
 import ClientStatementPrintBody from "./ClientStatementPrintBody";
 import { salesForCustomer } from "../utils/customers";
+import { useCurrency } from "../contexts/CurrencyContext";
+import { useLocale } from "../contexts/LocaleContext";
 import {
   filterClientSalesByDateRange,
   formatClientStatementRange,
   formatClientStatementText,
   summarizeClientSales,
 } from "../utils/clientStatement";
+import { saleExchangeRate } from "../utils/currency";
 import { saveNodeAsPdf } from "../utils/domPdf";
 import { getInvoiceFormat, getInvoicePageCssSize, getInvoicePdfFormat } from "../utils/invoiceFormats";
 
@@ -27,6 +30,7 @@ function fieldsFromClient(initial) {
 }
 
 function ClientForm({ initial, onSave, onCancel, saveLabel }) {
+  const { t, tError } = useLocale();
   const [fields, setFields] = useState(fieldsFromClient(initial));
   const [error, setError] = useState("");
 
@@ -48,7 +52,7 @@ function ClientForm({ initial, onSave, onCancel, saveLabel }) {
       <p className="text-xs font-bold text-cyan-400 uppercase tracking-widest">{saveLabel}</p>
       <input
         type="text"
-        placeholder="Client name *"
+        placeholder={t("clients.clientName")}
         value={fields.name}
         onChange={set("name")}
         className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none"
@@ -56,20 +60,20 @@ function ClientForm({ initial, onSave, onCancel, saveLabel }) {
       <input
         type="text"
         inputMode="tel"
-        placeholder="Phone number *"
+        placeholder={`${t("common.phone")} *`}
         value={fields.phone}
         onChange={set("phone")}
         className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none"
       />
       <input
         type="text"
-        placeholder="Tax number *"
+        placeholder={`${t("payment.taxNumber")} *`}
         value={fields.taxNumber}
         onChange={set("taxNumber")}
         className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:border-cyan-500 outline-none"
       />
       <textarea
-        placeholder="Address"
+        placeholder={t("common.address")}
         value={fields.address}
         onChange={set("address")}
         rows={2}
@@ -77,18 +81,18 @@ function ClientForm({ initial, onSave, onCancel, saveLabel }) {
       />
       <input
         type="email"
-        placeholder="Email"
+        placeholder={t("common.email")}
         value={fields.email}
         onChange={set("email")}
         className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none"
       />
-      {error && <p className="text-red-400 text-xs">{error}</p>}
+      {error && <p className="text-red-400 text-xs">{tError(error)}</p>}
       <Box className="flex gap-2">
         <button
           type="submit"
           className="flex-1 bg-cyan-600 hover:bg-cyan-700 py-2 rounded text-sm font-bold uppercase"
         >
-          Save
+          {t("common.save")}
         </button>
         {onCancel && (
           <button
@@ -96,7 +100,7 @@ function ClientForm({ initial, onSave, onCancel, saveLabel }) {
             onClick={onCancel}
             className="px-4 py-2 rounded text-sm border border-gray-700 text-gray-400 hover:text-white"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         )}
       </Box>
@@ -115,6 +119,8 @@ export default function ClientManageModal({
   onViewInvoice,
   invoiceProfile,
 }) {
+  const currency = useCurrency();
+  const { t, tError, locale } = useLocale();
   const [editingId, setEditingId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -155,7 +161,7 @@ export default function ClientManageModal({
     : [];
   const statementSummary = summarizeClientSales(statementSales);
   const statementLastSale = statementSales[0] ?? null;
-  const statementRangeLabel = formatClientStatementRange(statementRange);
+  const statementRangeLabel = formatClientStatementRange(statementRange, locale);
   const statementFormatId = invoiceProfile?.defaultPrintFormat || "A4";
   const statementFormat = getInvoiceFormat(statementFormatId);
   const statementText = statementCustomer
@@ -164,6 +170,9 @@ export default function ClientManageModal({
         sales: statementSales,
         profile: invoiceProfile,
         range: statementRange,
+        exchangeRate: currency.exchangeRate,
+        primaryCurrency: currency.primaryCurrency,
+        locale,
       })
     : "";
 
@@ -181,9 +190,9 @@ export default function ClientManageModal({
     if (!statementText) return;
     try {
       await navigator.clipboard.writeText(statementText);
-      alert("Client statement copied.");
+      alert(t("clients.copied"));
     } catch {
-      alert("Could not copy the client statement.");
+      alert(t("clients.copyFailed"));
     }
   };
 
@@ -197,7 +206,7 @@ export default function ClientManageModal({
       }
       window.open(url, "_blank", "noopener,noreferrer");
     } catch {
-      alert("Could not open WhatsApp.");
+      alert(t("clients.openWhatsAppFailed"));
     }
   };
 
@@ -205,10 +214,10 @@ export default function ClientManageModal({
     if (!statementCustomer || !exportRef.current) return;
     const w = window.open("", "_blank", "width=900,height=720");
     if (!w) {
-      alert("Could not open the print window.");
+      alert(t("clients.printFailed"));
       return;
     }
-    w.document.write(`<!DOCTYPE html><html><head><title>Statement ${statementCustomer.name}</title>
+    w.document.write(`<!DOCTYPE html><html><head><title>${t("clients.statementDocTitle", { name: statementCustomer.name })}</title>
       <style>
         body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #fff; color: #111827; }
         .sheet {
@@ -239,9 +248,9 @@ export default function ClientManageModal({
       await saveNodeAsPdf(exportRef.current, `client-statement-${statementCustomer.name}`, {
         format: getInvoicePdfFormat(statementFormatId),
       });
-      alert("Client statement PDF saved.");
+      alert(t("clients.pdfSaved"));
     } catch (error) {
-      alert(`Could not save statement PDF: ${error?.message ?? error}`);
+      alert(t("clients.pdfFailed", { error: error?.message ?? error }));
     }
   };
 
@@ -252,11 +261,11 @@ export default function ClientManageModal({
           <Box>
             <h3 className="font-bold flex items-center gap-2">
               <User className="text-cyan-400" size={20} />
-              Client book
+              {t("clients.title")}
             </h3>
-            <p className="text-[10px] text-gray-500 mt-1">Saved clients for faster invoicing</p>
+            <p className="text-[10px] text-gray-500 mt-1">{t("clients.subtitle")}</p>
           </Box>
-          <button type="button" onClick={handleClose} aria-label="Close">
+          <button type="button" onClick={handleClose} aria-label={t("common.close")}>
             <X size={20} />
           </button>
         </Box>
@@ -268,7 +277,7 @@ export default function ClientManageModal({
                 <Search className="absolute left-3 top-2.5 text-gray-500" size={16} />
                 <input
                   type="text"
-                  placeholder="Search clients by name, phone, tax, or email"
+                  placeholder={t("clients.searchPlaceholder")}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-10 py-2 text-sm focus:border-cyan-500 outline-none"
@@ -282,13 +291,13 @@ export default function ClientManageModal({
                   className="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-gray-700 rounded-lg text-sm text-gray-400 hover:text-white hover:border-cyan-500"
                 >
                   <Plus size={16} />
-                  Add client
+                  {t("clients.addClient")}
                 </button>
               )}
 
               {showAddForm && (
                 <ClientForm
-                  saveLabel="New client"
+                  saveLabel={t("clients.newClient")}
                   onSave={async (fields) => {
                     const result = await onAdd(fields);
                     if (result.ok) setShowAddForm(false);
@@ -302,7 +311,7 @@ export default function ClientManageModal({
                 <ClientForm
                   key={editingId}
                   initial={editingCustomer}
-                  saveLabel="Edit client"
+                  saveLabel={t("clients.editClient")}
                   onSave={async (fields) => {
                     const result = await onUpdate(editingId, fields);
                     if (result.ok) setEditingId(null);
@@ -313,7 +322,7 @@ export default function ClientManageModal({
               )}
 
               {filteredCustomers.length === 0 ? (
-                <p className="text-sm text-gray-600 text-center py-6">No saved clients found.</p>
+                <p className="text-sm text-gray-600 text-center py-6">{t("clients.noClients")}</p>
               ) : (
                 <ul className="space-y-2">
                   {filteredCustomers.map((customer) => {
@@ -334,7 +343,7 @@ export default function ClientManageModal({
                             <p className="font-medium text-gray-200">{customer.name}</p>
                             <p className="text-[10px] text-gray-500 mt-1">{customer.phone}</p>
                             <p className="text-[10px] font-mono text-gray-500 mt-1">
-                              Tax: {customer.taxNumber}
+                              {t("clients.taxLabel", { number: customer.taxNumber })}
                             </p>
                             {customer.email && (
                               <p className="text-[10px] text-gray-500 mt-1">{customer.email}</p>
@@ -345,7 +354,9 @@ export default function ClientManageModal({
                               </p>
                             )}
                             <p className="text-[10px] text-cyan-400 mt-2">
-                              {invoiceCount} invoice{invoiceCount === 1 ? "" : "s"}
+                              {invoiceCount === 1
+                                ? t("clients.invoiceCount", { count: invoiceCount })
+                                : t("clients.invoiceCountPlural", { count: invoiceCount })}
                             </p>
                           </Box>
                           <Box className="flex gap-1 shrink-0">
@@ -358,7 +369,7 @@ export default function ClientManageModal({
                               }}
                               className="px-2 py-2 rounded text-cyan-400 hover:text-white hover:bg-gray-800 text-[10px] font-bold uppercase"
                             >
-                              Statement
+                              {t("clients.statement")}
                             </button>
                             <button
                               type="button"
@@ -374,10 +385,10 @@ export default function ClientManageModal({
                             <button
                               type="button"
                               onClick={async () => {
-                                if (!window.confirm(`Delete "${customer.name}" from saved clients?`)) return;
+                                if (!window.confirm(t("clients.deleteConfirm", { name: customer.name }))) return;
                                 const result = await onDelete(customer.id);
                                 if (!result.ok) {
-                                  alert(result.error);
+                                  alert(tError(result.error));
                                   return;
                                 }
                                 if (editingId === customer.id) setEditingId(null);
@@ -402,40 +413,40 @@ export default function ClientManageModal({
                 <Box className="p-4 border-b border-gray-800">
                   <h4 className="font-bold flex items-center gap-2">
                     <FileText className="text-cyan-400" size={18} />
-                    Client statement
+                    {t("clients.statementTitle")}
                   </h4>
                   <p className="text-[10px] text-gray-500 mt-1">
-                    View invoice history and totals for one saved client.
+                    {t("clients.statementSubtitle")}
                   </p>
                 </Box>
 
                 {!statementCustomer ? (
                   <p className="p-4 text-sm text-gray-600">
-                    Select a saved client to view their invoice history.
+                    {t("clients.selectClient")}
                   </p>
                 ) : (
                   <Box className="p-4 space-y-4">
                     <Box className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                      <Stat label="Client" value={statementCustomer.name} />
+                      <Stat label={t("common.client")} value={statementCustomer.name} />
                       <Stat
-                        label="Invoices"
+                        label={t("clients.invoicesLabel")}
                         value={String(statementSummary.invoiceCount)}
                         accent="text-cyan-400"
                       />
                       <Stat
-                        label="Gross billed"
-                        value={`$${statementSummary.grossUSD.toFixed(2)}`}
+                        label={t("clients.grossBilled")}
+                        value={currency.formatPrimary(statementSummary.grossUSD)}
                         accent="text-green-400"
                       />
                       <Stat
-                        label="Net sales"
-                        value={`$${statementSummary.netUSD.toFixed(2)}`}
+                        label={t("clients.netSales")}
+                        value={currency.formatPrimary(statementSummary.netUSD)}
                         accent="text-blue-400"
                       />
                     </Box>
 
                     <Box className="text-xs text-gray-500">
-                      Period: <span className="text-gray-300">{statementRangeLabel}</span>
+                      {t("clients.period")} <span className="text-gray-300">{statementRangeLabel}</span>
                     </Box>
 
                     <Box className="grid grid-cols-1 sm:grid-cols-[1fr,1fr,auto] gap-2">
@@ -459,16 +470,16 @@ export default function ClientManageModal({
                         }}
                         className="px-3 py-2 rounded border border-gray-700 text-xs font-bold uppercase tracking-wide text-gray-400 hover:text-white"
                       >
-                        Clear
+                        {t("common.clear")}
                       </button>
                     </Box>
 
                     <Box className="text-xs text-gray-500">
-                      Last invoice:{" "}
+                      {t("clients.lastInvoice")}{" "}
                       <span className="text-gray-300">
                         {statementLastSale
                           ? new Date(statementLastSale.timestamp).toLocaleString()
-                          : "No invoices yet"}
+                          : t("clients.noInvoicesYet")}
                       </span>
                     </Box>
 
@@ -479,7 +490,7 @@ export default function ClientManageModal({
                         className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border border-gray-700 text-gray-200 hover:border-gray-500 flex items-center gap-2"
                       >
                         <Copy size={14} />
-                        Copy summary
+                        {t("reports.copySummary")}
                       </button>
                       <button
                         type="button"
@@ -487,7 +498,7 @@ export default function ClientManageModal({
                         className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border border-green-700 bg-green-950/30 text-green-400 hover:border-green-500 flex items-center gap-2"
                       >
                         <MessageCircle size={14} />
-                        Open WhatsApp
+                        {t("reports.openWhatsApp")}
                       </button>
                       <button
                         type="button"
@@ -495,7 +506,7 @@ export default function ClientManageModal({
                         className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border border-blue-700 bg-blue-950/30 text-blue-400 hover:border-blue-500 flex items-center gap-2"
                       >
                         <Printer size={14} />
-                        Print
+                        {t("invoiceModal.print")}
                       </button>
                       <button
                         type="button"
@@ -513,16 +524,16 @@ export default function ClientManageModal({
 
                     {statementSales.length === 0 ? (
                       <p className="text-sm text-gray-600 py-6 text-center">
-                        No invoices found for this client yet.
+                        {t("clients.noInvoicesForClient")}
                       </p>
                     ) : (
                       <Box className="border border-gray-800 rounded-lg overflow-hidden">
                         <table className="w-full text-left text-sm">
                           <thead className="text-[10px] uppercase text-gray-500 border-b border-gray-800 bg-[#151515]">
                             <tr>
-                              <th className="p-3">Invoice</th>
-                              <th className="p-3">When</th>
-                              <th className="p-3 text-right">USD</th>
+                              <th className="p-3">{t("invoices.columnInvoice")}</th>
+                              <th className="p-3">{t("invoices.columnWhen")}</th>
+                              <th className="p-3 text-right">{currency.primaryCurrency}</th>
                               <th className="p-3 w-24" />
                             </tr>
                           </thead>
@@ -535,7 +546,7 @@ export default function ClientManageModal({
                                   </span>
                                   {sale.status === "refunded" && (
                                     <span className="block text-[10px] text-red-400 uppercase mt-1">
-                                      Refunded
+                                      {t("common.refunded")}
                                     </span>
                                   )}
                                 </td>
@@ -543,7 +554,7 @@ export default function ClientManageModal({
                                   {new Date(sale.timestamp).toLocaleString()}
                                 </td>
                                 <td className="p-3 text-right font-bold">
-                                  ${(sale.totalUSD ?? 0).toFixed(2)}
+                                  {currency.formatPrimary(sale.totalUSD ?? 0, saleExchangeRate(sale))}
                                 </td>
                                 <td className="p-3 text-right">
                                   <button
@@ -551,7 +562,7 @@ export default function ClientManageModal({
                                     onClick={() => onViewInvoice?.(sale)}
                                     className="text-[10px] font-bold uppercase text-blue-400 hover:underline"
                                   >
-                                    View
+                                    {t("common.view")}
                                   </button>
                                 </td>
                               </tr>

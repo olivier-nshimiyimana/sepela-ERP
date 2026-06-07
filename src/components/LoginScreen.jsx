@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { LogIn } from "lucide-react";
 import startupBackground from "../../sepela-erp-background.png";
+import { useLocale } from "../contexts/LocaleContext";
 
 const Box = "d" + "iv";
 
 export default function LoginScreen({ onLogin, ready }) {
+  const { t } = useLocale();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -31,13 +33,13 @@ export default function LoginScreen({ onLogin, ready }) {
           <h1 className="text-[34px] leading-none font-extrabold tracking-tight text-blue-500">
             SEPELA <span className="text-white">INC</span>
           </h1>
-          <p className="text-[#7e8796] text-[18px] leading-tight font-light mt-2">Sign in</p>
+          <p className="text-[#7e8796] text-[18px] leading-tight font-light mt-2">{t("login.signIn")}</p>
         </Box>
 
         <form onSubmit={handleSubmit} className="px-7 py-6 space-y-4">
           <Box className="space-y-2">
             <label className="text-[13px] font-bold text-[#7f8a99] uppercase tracking-[0.22em]">
-              Username
+              {t("login.username")}
             </label>
             <input
               autoFocus
@@ -51,7 +53,7 @@ export default function LoginScreen({ onLogin, ready }) {
           </Box>
           <Box className="space-y-2">
             <label className="text-[13px] font-bold text-[#7f8a99] uppercase tracking-[0.22em]">
-              Password
+              {t("login.password")}
             </label>
             <input
               type="password"
@@ -71,13 +73,15 @@ export default function LoginScreen({ onLogin, ready }) {
             className="w-full h-12 flex items-center justify-center gap-2 bg-[#1267f5] hover:bg-[#1e73ff] disabled:bg-gray-800 rounded-xl text-[20px] leading-none font-black uppercase tracking-[0.14em] transition-colors"
           >
             <LogIn size={20} />
-            {loading ? "Signing in…" : "Sign in"}
+            {loading ? t("login.signingIn") : t("login.signIn")}
           </button>
         </form>
 
         <Box className="px-7 pb-8 text-[11px] text-[#7f8a99] text-center">
           <p>
-            Activation or license issues? Contact <span className="text-gray-300">SEPELA INC</span> support.
+            {t("login.support")}{" "}
+            <span className="text-gray-300">{t("login.supportCompany")}</span>
+            {t("login.supportSuffix") ? ` ${t("login.supportSuffix")}` : ""}
           </p>
         </Box>
       </Box>
