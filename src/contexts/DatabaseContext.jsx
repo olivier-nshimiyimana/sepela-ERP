@@ -62,6 +62,14 @@ import {
   deviceBindingToCloudFields,
 } from "../config/portalDefaults";
 import { emptyTenantCloudBinding, scrubCloudSyncForTenant } from "../db/tenantCloud";
+import {
+  deletePromotion as deletePromotionRow,
+  loadProductCategories,
+  loadPromotions,
+  upsertProductCategory,
+  upsertPromotion,
+} from "../db/promotions";
+import { evaluateCartPromotions } from "../utils/promotionEngine";
 import { useLocalStorageData } from "../db/localStorageFallback";
 
 const DatabaseContext = createContext(null);
@@ -85,7 +93,17 @@ const CLOUD_SYNC_LAST_AT_KEY = "cloud_sync_last_at";
 const CLOUD_SYNC_LAST_STATUS_KEY = "cloud_sync_last_status";
 const CLOUD_SYNC_LAST_SUMMARY_KEY = "cloud_sync_last_summary";
 const CLOUD_SYNC_LAST_ERROR_KEY = "cloud_sync_last_error";
-const SYNCABLE_TABLES = ["products", "customers", "suppliers", "sales", "purchases", "settings", "stockSnapshots"];
+const SYNCABLE_TABLES = [
+  "products",
+  "customers",
+  "suppliers",
+  "sales",
+  "purchases",
+  "settings",
+  "stockSnapshots",
+  "productCategories",
+  "promotions",
+];
 
 const DEFAULT_CLOUD_SYNC = {
   enabled: false,
@@ -240,6 +258,10 @@ function buildDirtySyncPayload(data, includeSettings = false) {
     purchases: (data.purchases ?? []).filter((row) => row.syncStatus !== SYNC_STATUS.SYNCED),
     settings: includeSettings ? data.settings ?? [] : [],
     stockSnapshots: (data.stockSnapshots ?? []).filter((row) => row.syncStatus !== SYNC_STATUS.SYNCED),
+    productCategories: (data.productCategories ?? []).filter(
+      (row) => row.syncStatus !== SYNC_STATUS.SYNCED
+    ),
+    promotions: (data.promotions ?? []).filter((row) => row.syncStatus !== SYNC_STATUS.SYNCED),
   };
 }
 
@@ -250,8 +272,8 @@ function countSyncItems(payload) {
 async function loadProducts(db, merchantCode) {
   const rows = await dbSelect(
     db,
-    `SELECT
-       p.id, p.name, p.lot_number, p.expiration_date, p.price, p.stock,
+    `     SELECT
+       p.id, p.name, p.lot_number, p.expiration_date, p.price, p.stock, p.category_id,
        p.updated_at, p.sync_status,
        b.buy_unit, b.buy_unit_cost, b.qty_per_unit, b.item_size_label,
        b.stock_quantity_items, b.reorder_level_items, b.item_unit_cost
@@ -269,6 +291,7 @@ async function loadProducts(db, merchantCode) {
       lotNumber: r.lot_number,
       expirationDate: r.expiration_date,
       price: r.price,
+      categoryId: r.category_id ?? null,
       stock: breakdown.stockQuantityItems,
       ...breakdown,
       updatedAt: r.updated_at,
@@ -280,7 +303,7 @@ async function loadProducts(db, merchantCode) {
 async function loadCustomers(db, merchantCode) {
   const rows = await dbSelect(
     db,
-    `SELECT id, name, phone, address, email, tax_number, updated_at, sync_status
+    `SELECT id, name, phone, address, email, tax_number, client_tier, updated_at, sync_status
      FROM customers WHERE merchant_code = ? ORDER BY lower(name), phone`,
     [merchantCode]
   );
@@ -291,6 +314,7 @@ async function loadCustomers(db, merchantCode) {
     address: row.address,
     email: row.email,
     taxNumber: row.tax_number,
+    clientTier: row.client_tier ?? null,
     updatedAt: row.updated_at,
     syncStatus: row.sync_status,
   }));
@@ -520,6 +544,8 @@ export function DatabaseProvider({ children }) {
     sales: [],
     purchases: [],
     stockSnapshots: [],
+    productCategories: [],
+    promotions: [],
     backupHistory: { lastExportAt: null, lastRestoreAt: null },
     cloudSync: DEFAULT_CLOUD_SYNC,
     activeTenant: { merchantCode: "local", branchCode: "" },
@@ -529,18 +555,31 @@ export function DatabaseProvider({ children }) {
   const refreshSqlite = useCallback(async (db) => {
     const activeTenant = await getActiveTenant(db);
     const merchantCode = activeTenant.merchantCode;
-    const [products, customers, suppliers, sales, purchases, stockSnapshots, backupHistory, settings, cloudSync] =
-      await Promise.all([
-        loadProducts(db, merchantCode),
-        loadCustomers(db, merchantCode),
-        loadSuppliers(db, merchantCode),
-        loadSales(db, merchantCode),
-        loadPurchases(db, merchantCode),
-        loadSnapshotRows(db, merchantCode),
-        loadBackupHistory(db),
-        loadSettings(db, merchantCode),
-        loadCloudSync(db),
-      ]);
+    const [
+      products,
+      customers,
+      suppliers,
+      sales,
+      purchases,
+      stockSnapshots,
+      productCategories,
+      promotions,
+      backupHistory,
+      settings,
+      cloudSync,
+    ] = await Promise.all([
+      loadProducts(db, merchantCode),
+      loadCustomers(db, merchantCode),
+      loadSuppliers(db, merchantCode),
+      loadSales(db, merchantCode),
+      loadPurchases(db, merchantCode),
+      loadSnapshotRows(db, merchantCode),
+      loadProductCategories(db, merchantCode),
+      loadPromotions(db, merchantCode),
+      loadBackupHistory(db),
+      loadSettings(db, merchantCode),
+      loadCloudSync(db),
+    ]);
     setSqlite({
       ready: true,
       error: null,
@@ -550,6 +589,8 @@ export function DatabaseProvider({ children }) {
       sales,
       purchases,
       stockSnapshots,
+      productCategories,
+      promotions,
       backupHistory,
       cloudSync,
       activeTenant,
@@ -635,7 +676,7 @@ export function DatabaseProvider({ children }) {
             <p className="text-red-400 font-bold mb-2">Database error</p>
             <p className="text-sm max-w-md">{value.error}</p>
             <p className="text-xs mt-4 text-gray-600">
-              Close the app, delete the app data folder under %APPDATA%\com.sepela.erp\, then run npm run tauri dev again.
+              Check D:\SepelaERP\data\sepela.db or C:\SepelaERP\data\sepela.db. If the file is corrupt, back it up and remove it, then run npm run tauri dev again.
             </p>
           </>
         ) : (
@@ -659,6 +700,9 @@ function buildFallbackApi(f) {
     sales: f.sales,
     purchases: f.purchases,
     stockSnapshots: [],
+    productCategories: [],
+    promotions: [],
+    evaluateCartPromotions,
     backupHistory: f.backupHistory,
     cloudSync: f.cloudSync,
     exchangeRate: f.exchangeRate,
@@ -879,10 +923,14 @@ function buildFallbackApi(f) {
     deleteCustomer: f.deleteCustomer,
     savePortalConnection: f.savePortalConnection,
     syncDeviceBindingFromPortal: f.syncDeviceBindingFromPortal,
+    getDeviceActivation: f.getDeviceActivation,
     saveCloudSyncConfig: f.saveCloudSyncConfig,
     activateCloudDevice: f.activateCloudDevice,
     refreshCloudLeaseStatus: f.refreshCloudLeaseStatus,
     pushPendingSync: f.pushPendingSync,
+    saveProductCategory: async () => ({ ok: false, error: "Categories require the desktop database." }),
+    savePromotion: async () => ({ ok: false, error: "Promotions require the desktop database." }),
+    deletePromotion: async () => ({ ok: false, error: "Promotions require the desktop database." }),
     listPendingSync: f.listPendingSync,
     licenseAccepted: !!readLocalLicenseAcceptance(),
     acceptLicenseAgreement: async (locale) => {
@@ -963,7 +1011,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
     }
 
     const activeConfig = config;
-    const syncMerchantCode = activeTenant.merchantCode;
+    const syncMerchantCode = String(activeConfig.merchantCode ?? activeTenant.merchantCode ?? "").trim();
 
     if (activeConfig.leaseToken) {
       const leaseMerchant = String(activeConfig.merchantCode ?? "").trim();
@@ -976,15 +1024,54 @@ function buildSqliteApi(sqlite, refreshSqlite) {
     }
 
     const dirtySettings = await loadDirtySettingsRows(db);
+    const [products, customers, suppliers, sales, purchases, stockSnapshots, productCategories, promotions] =
+      await Promise.all([
+      dbSelect(
+        db,
+        `SELECT p.id, p.name, p.lot_number, p.expiration_date, p.price, p.stock, p.category_id,
+                p.updated_at, p.sync_status,
+                b.buy_unit, b.buy_unit_cost, b.qty_per_unit, b.item_size_label,
+                b.stock_quantity_items, b.reorder_level_items, b.item_unit_cost
+         FROM products p
+         LEFT JOIN inventory_breakdown b ON b.product_id = p.id
+         WHERE p.merchant_code = ?`,
+        [syncMerchantCode]
+      ).then((rows) =>
+        rows.map((r) => {
+          const breakdown = mapBreakdownRow(r, r.stock);
+          return {
+            id: r.id,
+            name: r.name,
+            lotNumber: r.lot_number,
+            expirationDate: r.expiration_date,
+            price: r.price,
+            stock: r.stock,
+            categoryId: r.category_id ?? null,
+            updatedAt: r.updated_at,
+            syncStatus: r.sync_status,
+            ...breakdown,
+          };
+        })
+      ),
+      loadCustomers(db, syncMerchantCode),
+      loadSuppliers(db, syncMerchantCode),
+      loadSales(db, syncMerchantCode),
+      loadPurchases(db, syncMerchantCode),
+      loadSnapshotRows(db, syncMerchantCode),
+      loadProductCategories(db, syncMerchantCode),
+      loadPromotions(db, syncMerchantCode),
+    ]);
     const payload = buildDirtySyncPayload(
       {
-        products: sqlite.products,
-        customers: sqlite.customers,
-        suppliers: sqlite.suppliers,
-        sales: sqlite.sales,
-        purchases: sqlite.purchases,
+        products,
+        customers,
+        suppliers,
+        sales,
+        purchases,
         settings: dirtySettings,
-        stockSnapshots: sqlite.stockSnapshots,
+        stockSnapshots,
+        productCategories,
+        promotions,
       },
       true
     );
@@ -1025,6 +1112,14 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       await updateSqliteSyncStatus(db, "purchase_orders", "id", result.synced.purchases, SYNC_STATUS.SYNCED);
       await updateSqliteSyncStatus(db, "settings", "key", result.synced.settings, SYNC_STATUS.SYNCED);
       await updateSqliteSyncStatus(db, "stock_snapshots", "id", result.synced.stockSnapshots, SYNC_STATUS.SYNCED);
+      await updateSqliteSyncStatus(
+        db,
+        "product_categories",
+        "id",
+        result.synced.productCategories,
+        SYNC_STATUS.SYNCED
+      );
+      await updateSqliteSyncStatus(db, "promotions", "id", result.synced.promotions, SYNC_STATUS.SYNCED);
 
       await updateSqliteSyncStatus(db, "products", "id", result.failed.products, SYNC_STATUS.FAILED);
       await updateSqliteSyncStatus(
@@ -1040,6 +1135,14 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       await updateSqliteSyncStatus(db, "purchase_orders", "id", result.failed.purchases, SYNC_STATUS.FAILED);
       await updateSqliteSyncStatus(db, "settings", "key", result.failed.settings, SYNC_STATUS.FAILED);
       await updateSqliteSyncStatus(db, "stock_snapshots", "id", result.failed.stockSnapshots, SYNC_STATUS.FAILED);
+      await updateSqliteSyncStatus(
+        db,
+        "product_categories",
+        "id",
+        result.failed.productCategories,
+        SYNC_STATUS.FAILED
+      );
+      await updateSqliteSyncStatus(db, "promotions", "id", result.failed.promotions, SYNC_STATUS.FAILED);
 
       const syncedCount = countSyncItems(result.synced);
       const failedCount = countSyncItems(result.failed);
@@ -1117,6 +1220,9 @@ function buildSqliteApi(sqlite, refreshSqlite) {
     sales: sqlite.sales,
     purchases: sqlite.purchases,
     stockSnapshots: sqlite.stockSnapshots,
+    productCategories: sqlite.productCategories,
+    promotions: sqlite.promotions,
+    evaluateCartPromotions,
     backupHistory: sqlite.backupHistory,
     cloudSync: normalizeCloudSync(
       scrubCloudSyncForTenant(sqlite.cloudSync, sqlite.activeTenant?.merchantCode ?? "local")
@@ -1185,14 +1291,15 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       const id = existing?.id ?? newEntityId("cus");
       await dbExecute(
         db,
-        `INSERT INTO customers (id, name, phone, address, email, tax_number, merchant_code, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO customers (id, name, phone, address, email, tax_number, client_tier, merchant_code, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            phone = excluded.phone,
            address = excluded.address,
            email = excluded.email,
            tax_number = excluded.tax_number,
+           client_tier = excluded.client_tier,
            merchant_code = excluded.merchant_code,
            updated_at = excluded.updated_at,
            sync_status = excluded.sync_status`,
@@ -1203,6 +1310,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           validated.data.address,
           validated.data.email,
           validated.data.taxNumber,
+          validated.data.clientTier ?? null,
           merchantCode,
           ts,
           SYNC_STATUS.PENDING,
@@ -1218,6 +1326,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           address: validated.data.address,
           email: validated.data.email,
           taxNumber: validated.data.taxNumber,
+          clientTier: validated.data.clientTier ?? null,
           updatedAt: ts,
           syncStatus: SYNC_STATUS.PENDING,
         },
@@ -1233,7 +1342,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       await dbExecute(
         db,
         `UPDATE customers
-         SET name = ?, phone = ?, address = ?, email = ?, tax_number = ?, updated_at = ?, sync_status = ?
+         SET name = ?, phone = ?, address = ?, email = ?, tax_number = ?, client_tier = ?, updated_at = ?, sync_status = ?
          WHERE id = ?`,
         [
           validated.data.name,
@@ -1241,6 +1350,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           validated.data.address,
           validated.data.email,
           validated.data.taxNumber,
+          validated.data.clientTier ?? null,
           ts,
           SYNC_STATUS.PENDING,
           id,
@@ -1265,7 +1375,15 @@ function buildSqliteApi(sqlite, refreshSqlite) {
     },
     recordSale: async (payload) => {
       const db = await getDatabase();
-      const { merchantCode } = await getActiveTenant(db);
+      const { merchantCode: activeMerchant } = await getActiveTenant(db);
+      const sessionMerchant = String(payload.merchantCode ?? "").trim();
+      const merchantCode = sessionMerchant || activeMerchant;
+      if (sessionMerchant && sessionMerchant !== activeMerchant) {
+        return {
+          ok: false,
+          error: `Signed-in store (${sessionMerchant}) does not match this device (${activeMerchant}). Sign out and sign in again.`,
+        };
+      }
       const ts = nowIso();
       const ctx = receiptContextForNewSale({ trainingMode: settings.trainingMode });
       const invoiceNumber = allocateInvoiceNumber(settings);
@@ -1278,9 +1396,9 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           id, invoice_number, timestamp, status, receipt_type, transaction_type, sdc_receipt_code,
           copy_index, method, method_label, total_usd, total_cdf, change_due_usd, amount_received,
           reference, card_last_four, cashier_id, cashier_name, customer_id, customer_name, customer_phone,
-          customer_address, customer_email, customer_tax_number, exchange_rate, merchant_code,
-          updated_at, sync_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          customer_address, customer_email, customer_tax_number, exchange_rate, promotion_discount_usd,
+          applied_promotion_id, merchant_code, updated_at, sync_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           invoiceNumber,
@@ -1307,6 +1425,8 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           rest.customerEmail ?? null,
           rest.customerTaxNumber ?? null,
           rest.exchangeRate,
+          rest.promotionDiscountUSD ?? 0,
+          rest.appliedPromotionId ?? null,
           merchantCode,
           ts,
           SYNC_STATUS.PENDING,
@@ -1564,8 +1684,8 @@ function buildSqliteApi(sqlite, refreshSqlite) {
 
         await dbExecute(
           db,
-          `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, merchant_code, updated_at, sync_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, category_id, merchant_code, updated_at, sync_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             product.id,
             product.name,
@@ -1573,6 +1693,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
             product.expirationDate,
             product.price,
             product.stockQuantityItems ?? product.stock,
+            product.categoryId ?? null,
             merchantCode,
             product.updatedAt,
             product.syncStatus,
@@ -1636,10 +1757,11 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       const { merchantCode } = await getActiveTenant(db);
       const ts = nowIso();
       const id = newEntityId("prd");
+      const categoryId = String(fields.categoryId ?? fields.category_id ?? "").trim() || null;
       await dbExecute(
         db,
-        `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, merchant_code, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, category_id, merchant_code, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           validated.data.name,
@@ -1647,6 +1769,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           validated.data.expirationDate,
           validated.data.price,
           validated.data.stockQuantityItems,
+          categoryId,
           merchantCode,
           ts,
           SYNC_STATUS.PENDING,
@@ -1661,16 +1784,18 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       if (!validated.ok) return validated;
       const db = await getDatabase();
       const ts = nowIso();
+      const categoryId = String(fields.categoryId ?? fields.category_id ?? "").trim() || null;
       await dbExecute(
         db,
         `UPDATE products SET name = ?, lot_number = ?, expiration_date = ?, price = ?, stock = ?,
-         updated_at = ?, sync_status = ? WHERE id = ?`,
+         category_id = ?, updated_at = ?, sync_status = ? WHERE id = ?`,
         [
           validated.data.name,
           validated.data.lotNumber,
           validated.data.expirationDate,
           validated.data.price,
           validated.data.stockQuantityItems,
+          categoryId,
           ts,
           SYNC_STATUS.PENDING,
           id,
@@ -1766,8 +1891,8 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           const id = requestedId && !existingById ? requestedId : newEntityId("prd");
           await dbExecute(
             db,
-            `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, merchant_code, updated_at, sync_status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, category_id, merchant_code, updated_at, sync_status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               id,
               validated.data.name,
@@ -1775,6 +1900,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
               validated.data.expirationDate,
               validated.data.price,
               validated.data.stockQuantityItems,
+              row.category_id ?? null,
               merchantCode,
               ts,
               SYNC_STATUS.PENDING,
@@ -1808,10 +1934,11 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       const { merchantCode } = await getActiveTenant(db);
       const ts = nowIso();
       if (r.createNew) {
+        const sourceProduct = sqlite.products.find((product) => product.id === id);
         await dbExecute(
           db,
-          `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, merchant_code, updated_at, sync_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, category_id, merchant_code, updated_at, sync_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             r.targetId,
             r.name,
@@ -1819,6 +1946,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
             r.expirationDate,
             r.price,
             r.stock,
+            sourceProduct?.categoryId ?? null,
             merchantCode,
             ts,
             SYNC_STATUS.PENDING,
@@ -1936,12 +2064,20 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       await refreshSqlite(db);
       return { ok: true };
     },
-    syncDeviceBindingFromPortal: async (deviceBinding, { apiBaseUrl, apiToken }) => {
+    syncDeviceBindingFromPortal: async (deviceBinding, { apiBaseUrl, apiToken, operatorMerchantCode }) => {
       const fields = deviceBindingToCloudFields(deviceBinding);
       if (!fields) {
         return { ok: false, error: deviceBinding?.reason ?? "Device binding is not valid." };
       }
       const db = await getDatabase();
+      const tenant = await getActiveTenant(db);
+      const operatorMerchant = String(operatorMerchantCode ?? tenant.merchantCode ?? "").trim();
+      if (operatorMerchant && fields.merchantCode && fields.merchantCode !== operatorMerchant) {
+        return {
+          ok: false,
+          error: `Device lease is for "${fields.merchantCode}" but you signed in as "${operatorMerchant}".`,
+        };
+      }
       const cloud = await loadCloudSync(db);
       await persistCloudSyncConfig(
         db,
@@ -1952,12 +2088,17 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           apiToken: String(apiToken ?? cloud.apiToken ?? "").trim(),
         })
       );
-      await setActiveTenant(db, {
-        merchantCode: fields.merchantCode,
-        branchCode: fields.branchCode,
-      });
       await refreshSqlite(db);
       return { ok: true };
+    },
+    getDeviceActivation: async () => {
+      const db = await getDatabase();
+      const cloud = await loadCloudSync(db);
+      return {
+        merchantCode: String(cloud.merchantCode ?? "").trim(),
+        branchCode: String(cloud.branchCode ?? "").trim(),
+        leaseToken: String(cloud.leaseToken ?? "").trim(),
+      };
     },
     saveCloudSyncConfig: async ({ apiBaseUrl, apiToken, enabled, merchantCode, branchCode, deviceCode }) => {
       const trimmedUrl = String(apiBaseUrl ?? "").trim();
@@ -2051,6 +2192,35 @@ function buildSqliteApi(sqlite, refreshSqlite) {
       }
     },
     refreshCloudLeaseStatus,
+    saveProductCategory: async (fields) => {
+      const db = await getDatabase();
+      const { merchantCode } = await getActiveTenant(db);
+      const category = await upsertProductCategory(db, merchantCode, {
+        id: fields.id ?? newEntityId("cat"),
+        name: fields.name,
+        code: fields.code,
+        syncStatus: SYNC_STATUS.PENDING,
+      });
+      await refreshSqlite(db);
+      return { ok: true, category };
+    },
+    savePromotion: async (fields) => {
+      const db = await getDatabase();
+      const { merchantCode } = await getActiveTenant(db);
+      const promotion = await upsertPromotion(db, merchantCode, {
+        ...fields,
+        id: fields.id ?? newEntityId("prm"),
+        syncStatus: SYNC_STATUS.PENDING,
+      });
+      await refreshSqlite(db);
+      return { ok: true, promotion };
+    },
+    deletePromotion: async (id) => {
+      const db = await getDatabase();
+      await deletePromotionRow(db, id);
+      await refreshSqlite(db);
+      return { ok: true };
+    },
     pushPendingSync,
     productImportColumns: PRODUCT_IMPORT_COLUMNS,
     exportBackupData: async () => {
@@ -2066,6 +2236,8 @@ function buildSqliteApi(sqlite, refreshSqlite) {
         sales: sqlite.sales,
         purchases: sqlite.purchases,
         stockSnapshots: sqlite.stockSnapshots,
+        productCategories: sqlite.productCategories,
+        promotions: sqlite.promotions,
         settings: settingsForBackupExport(rawSettings),
       };
     },
@@ -2080,6 +2252,9 @@ function buildSqliteApi(sqlite, refreshSqlite) {
         "DELETE FROM purchase_orders",
         "DELETE FROM sale_items",
         "DELETE FROM sales",
+        "DELETE FROM promotions",
+        "DELETE FROM product_categories",
+        "DELETE FROM inventory_breakdown",
         "DELETE FROM products",
         "DELETE FROM customers",
         "DELETE FROM suppliers",
@@ -2095,29 +2270,58 @@ function buildSqliteApi(sqlite, refreshSqlite) {
         settingsFromBackupImport(data.settings, activeTenant.merchantCode)
       );
 
+      for (const category of data.productCategories ?? []) {
+        await upsertProductCategory(db, activeTenant.merchantCode, {
+          id: category.id ?? newEntityId("cat"),
+          name: category.name,
+          code: category.code,
+          updatedAt: category.updatedAt ?? ts,
+          syncStatus: category.syncStatus ?? SYNC_STATUS.PENDING,
+        });
+      }
+
+      for (const promotion of data.promotions ?? []) {
+        await upsertPromotion(db, activeTenant.merchantCode, {
+          ...promotion,
+          id: promotion.id ?? newEntityId("prm"),
+          updatedAt: promotion.updatedAt ?? ts,
+          syncStatus: promotion.syncStatus ?? SYNC_STATUS.PENDING,
+        });
+      }
+
       for (const product of data.products ?? []) {
+        const productId = product.id ?? newEntityId("prd");
         await dbExecute(
           db,
-          `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, updated_at, sync_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO products (id, name, lot_number, expiration_date, price, stock, category_id, merchant_code, updated_at, sync_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            product.id ?? newEntityId("prd"),
+            productId,
             product.name,
             product.lotNumber ?? null,
             product.expirationDate ?? null,
             product.price ?? 0,
-            product.stock ?? 0,
+            product.stock ?? product.stockQuantityItems ?? 0,
+            product.categoryId ?? null,
+            activeTenant.merchantCode,
             product.updatedAt ?? ts,
             product.syncStatus ?? SYNC_STATUS.PENDING,
           ]
+        );
+        await upsertInventoryBreakdown(
+          db,
+          productId,
+          product,
+          product.updatedAt ?? ts,
+          product.syncStatus ?? SYNC_STATUS.PENDING
         );
       }
 
       for (const customer of data.customers ?? []) {
         await dbExecute(
           db,
-          `INSERT INTO customers (id, name, phone, address, email, tax_number, updated_at, sync_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO customers (id, name, phone, address, email, tax_number, client_tier, merchant_code, updated_at, sync_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             customer.id ?? newEntityId("cus"),
             customer.name,
@@ -2125,6 +2329,8 @@ function buildSqliteApi(sqlite, refreshSqlite) {
             customer.address ?? null,
             customer.email ?? null,
             customer.taxNumber ?? null,
+            customer.clientTier ?? null,
+            activeTenant.merchantCode,
             customer.updatedAt ?? ts,
             customer.syncStatus ?? SYNC_STATUS.PENDING,
           ]
@@ -2154,10 +2360,10 @@ function buildSqliteApi(sqlite, refreshSqlite) {
             id, invoice_number, timestamp, status, receipt_type, transaction_type, sdc_receipt_code,
             copy_index, method, method_label, total_usd, total_cdf, change_due_usd, amount_received,
             reference, card_last_four, cashier_id, cashier_name, customer_id, customer_name, customer_phone,
-            customer_address, customer_email, customer_tax_number, exchange_rate,
-            refund_at, refund_reason, refund_restore_stock, refund_by_user_id, refund_by_user_name,
-            updated_at, sync_status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            customer_address, customer_email, customer_tax_number, exchange_rate, promotion_discount_usd,
+            applied_promotion_id, merchant_code, refund_at, refund_reason, refund_restore_stock,
+            refund_by_user_id, refund_by_user_name, updated_at, sync_status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             sale.id ?? newEntityId("inv"),
             sale.invoiceNumber ?? sale.id,
@@ -2184,6 +2390,9 @@ function buildSqliteApi(sqlite, refreshSqlite) {
             sale.customerEmail ?? null,
             sale.customerTaxNumber ?? null,
             sale.exchangeRate ?? null,
+            sale.promotionDiscountUSD ?? 0,
+            sale.appliedPromotionId ?? null,
+            activeTenant.merchantCode,
             sale.refund?.at ?? null,
             sale.refund?.reason ?? null,
             sale.refund?.restoreStock ? 1 : 0,
@@ -2320,12 +2529,34 @@ function buildSqliteApi(sqlite, refreshSqlite) {
         ),
         dbSelect(db, "SELECT key, sync_status FROM settings WHERE sync_status != 'SYNCED'"),
       ]);
-      const stockSnapshots = await dbSelect(
-        db,
-        "SELECT id, sync_status FROM stock_snapshots WHERE sync_status != 'SYNCED' AND merchant_code = ?",
-        [merchantCode]
-      );
-      return { products, customers, suppliers, sales, purchases, settings: settingsRows, stockSnapshots };
+      const [stockSnapshots, productCategories, promotions] = await Promise.all([
+        dbSelect(
+          db,
+          "SELECT id, sync_status FROM stock_snapshots WHERE sync_status != 'SYNCED' AND merchant_code = ?",
+          [merchantCode]
+        ),
+        dbSelect(
+          db,
+          "SELECT id, sync_status FROM product_categories WHERE sync_status != 'SYNCED' AND merchant_code = ?",
+          [merchantCode]
+        ),
+        dbSelect(
+          db,
+          "SELECT id, sync_status FROM promotions WHERE sync_status != 'SYNCED' AND merchant_code = ?",
+          [merchantCode]
+        ),
+      ]);
+      return {
+        products,
+        customers,
+        suppliers,
+        sales,
+        purchases,
+        settings: settingsRows,
+        stockSnapshots,
+        productCategories,
+        promotions,
+      };
     },
     licenseAccepted:
       isLicenseAcceptedInSettings(settings) || !!readLocalLicenseAcceptance(),

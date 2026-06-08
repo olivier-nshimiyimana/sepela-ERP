@@ -13,6 +13,12 @@ import { useLocale } from "../contexts/LocaleContext";
 import LanguagePicker from "./LanguagePicker";
 import { DEFAULT_EXPIRY_ALERT_DAYS } from "../utils/productExpiry";
 import { getInvoiceFormatLabel, INVOICE_FORMATS } from "../utils/invoiceFormats";
+import {
+  MAX_IDLE_MINUTES,
+  MIN_IDLE_MINUTES,
+  readIdleMusicSettings,
+  writeIdleMusicSettings,
+} from "../utils/idleMusicSettings";
 
 const Box = "d" + "iv";
 
@@ -66,6 +72,10 @@ export default function SettingsModal({
     )
   );
   const [training, setTraining] = useState(trainingMode);
+  const [idleMusicMinutes, setIdleMusicMinutes] = useState(() =>
+    String(readIdleMusicSettings().idleMinutes)
+  );
+  const [idleMusicEnabled, setIdleMusicEnabled] = useState(() => readIdleMusicSettings().enabled);
   const [cloudApiBaseUrl, setCloudApiBaseUrl] = useState(cloudSync?.apiBaseUrl ?? "");
   const [cloudApiToken, setCloudApiToken] = useState(cloudSync?.apiToken ?? "");
   const [cloudEnabled, setCloudEnabled] = useState(!!cloudSync?.enabled);
@@ -111,6 +121,8 @@ export default function SettingsModal({
       )
     );
     setTraining(!!trainingMode);
+    setIdleMusicMinutes(String(readIdleMusicSettings().idleMinutes));
+    setIdleMusicEnabled(readIdleMusicSettings().enabled);
     setCloudApiBaseUrl(cloudSync?.apiBaseUrl ?? "");
     setCloudApiToken(cloudSync?.apiToken ?? "");
     setCloudEnabled(!!cloudSync?.enabled);
@@ -334,6 +346,16 @@ export default function SettingsModal({
     setError("");
     setSuccessMessage("");
     try {
+      const parsedIdleMinutes = Number.parseInt(String(idleMusicMinutes).trim(), 10);
+      if (
+        !Number.isFinite(parsedIdleMinutes) ||
+        parsedIdleMinutes < MIN_IDLE_MINUTES ||
+        parsedIdleMinutes > MAX_IDLE_MINUTES
+      ) {
+        setError(t("settings.invalidIdleMusicMinutes"));
+        return;
+      }
+
       const prefix = (inv.invoicePrefix || "SEP").replace(/[^A-Za-z0-9]/g, "").slice(0, 8) || "SEP";
       let companyLogo = sanitizeCompanyLogo(inv.companyLogo);
       if (companyLogo.startsWith("data:image/jpeg") || companyLogo.startsWith("data:image/webp")) {
@@ -391,6 +413,8 @@ export default function SettingsModal({
         }
       }
 
+      writeIdleMusicSettings({ idleMinutes: parsedIdleMinutes, enabled: idleMusicEnabled });
+      setIdleMusicMinutes(String(parsedIdleMinutes));
       setSuccessMessage(t("settings.saved"));
     } catch (err) {
       setError(t("settings.saveSettingsError", { error: err?.message ?? err }));
@@ -498,6 +522,35 @@ export default function SettingsModal({
               className="w-full bg-[#0a0a0a] border border-gray-700 rounded-lg p-3 text-xl font-mono text-white focus:border-amber-500 outline-none"
               value={alertDays}
               onChange={(e) => setAlertDays(e.target.value)}
+            />
+          </Box>
+
+          <Box className="space-y-2 p-3 rounded-lg border border-emerald-900/40 bg-emerald-950/20">
+            <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
+              {t("settings.idleMusicSection")}
+            </p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={idleMusicEnabled}
+                onChange={(e) => setIdleMusicEnabled(e.target.checked)}
+                className="rounded border-gray-600"
+              />
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                {t("settings.idleMusicEnabled")}
+              </span>
+            </label>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+              {t("settings.idleMusicMinutes")}
+            </label>
+            <input
+              type="number"
+              min={MIN_IDLE_MINUTES}
+              max={MAX_IDLE_MINUTES}
+              step="1"
+              className="w-full bg-[#0a0a0a] border border-gray-700 rounded-lg p-3 text-xl font-mono text-white focus:border-emerald-500 outline-none"
+              value={idleMusicMinutes}
+              onChange={(e) => setIdleMusicMinutes(e.target.value)}
             />
           </Box>
 
@@ -754,6 +807,12 @@ export default function SettingsModal({
               </p>
               <p>
                 {t("settings.syncSnapshots")}: <span className="text-gray-300">{syncQueueSummary?.stockSnapshots ?? 0}</span>
+              </p>
+              <p>
+                {t("settings.syncCategories")}: <span className="text-gray-300">{syncQueueSummary?.productCategories ?? 0}</span>
+              </p>
+              <p>
+                {t("settings.syncPromotions")}: <span className="text-gray-300">{syncQueueSummary?.promotions ?? 0}</span>
               </p>
             </Box>
             <Box className="grid grid-cols-1 sm:grid-cols-3 gap-2">

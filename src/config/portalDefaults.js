@@ -12,11 +12,23 @@ function isBrowserDev() {
   }
 }
 
+function envPortalApiUrl() {
+  return String(import.meta.env.VITE_PORTAL_API_URL ?? "").trim();
+}
+
+function isLocalDevApiUrl(url) {
+  const normalized = normalizePortalApiBaseUrl(url);
+  if (!normalized) return false;
+  if (normalized === "/portal-api") return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalized);
+}
+
 /** In browser dev, use Vite proxy (`/portal-api`) to avoid CORS. Tauri uses the real URL. */
 export const DEFAULT_PORTAL_API_URL = (() => {
-  const fromEnv = String(import.meta.env.VITE_PORTAL_API_URL ?? "").trim();
-  if (isBrowserDev() && (!fromEnv || fromEnv === PRODUCTION_PORTAL_API_URL)) {
-    return "/portal-api";
+  const fromEnv = envPortalApiUrl();
+  if (isBrowserDev()) {
+    if (fromEnv && isLocalDevApiUrl(fromEnv)) return "/portal-api";
+    if (!fromEnv || fromEnv === PRODUCTION_PORTAL_API_URL) return "/portal-api";
   }
   return fromEnv || PRODUCTION_PORTAL_API_URL;
 })();
@@ -28,6 +40,9 @@ export const ACTIVATION_SUPPORT_MESSAGE =
 
 export const TERMINAL_NOT_CONFIGURED_MESSAGE =
   "This terminal is not configured for cloud access. Please contact SEPELA INC.";
+
+export const DEVICE_MERCHANT_MISMATCH_MESSAGE =
+  "This terminal is activated for another store. Sign in with that store's account, or re-activate the device in Settings for your store.";
 
 export function normalizePortalApiBaseUrl(url) {
   return String(url ?? "")
@@ -44,11 +59,28 @@ function portalApiUrlForRuntime(url) {
   return normalized;
 }
 
+function resolveApiToken(cloudSync = {}) {
+  const fromSync = String(cloudSync.apiToken ?? "").trim();
+  const fromEnv = DEFAULT_PORTAL_API_TOKEN;
+  // Dev: .env token wins so stale SQLite/localStorage tokens do not cause 401.
+  if (import.meta.env.DEV && fromEnv) return fromEnv;
+  return fromSync || fromEnv;
+}
+
+function resolveApiBaseUrl(cloudSync = {}) {
+  const fromEnv = envPortalApiUrl();
+  // Dev: localhost in .env overrides production URL saved in cloud-sync settings.
+  if (import.meta.env.DEV && fromEnv && isLocalDevApiUrl(fromEnv)) {
+    return isBrowserDev() ? "/portal-api" : normalizePortalApiBaseUrl(fromEnv);
+  }
+  return (
+    portalApiUrlForRuntime(cloudSync.apiBaseUrl) || portalApiUrlForRuntime(DEFAULT_PORTAL_API_URL)
+  );
+}
+
 export function resolvePortalConnection(cloudSync = {}) {
-  const apiBaseUrl =
-    portalApiUrlForRuntime(cloudSync.apiBaseUrl) ||
-    portalApiUrlForRuntime(DEFAULT_PORTAL_API_URL);
-  const apiToken = String(cloudSync.apiToken ?? "").trim() || DEFAULT_PORTAL_API_TOKEN;
+  const apiBaseUrl = resolveApiBaseUrl(cloudSync);
+  const apiToken = resolveApiToken(cloudSync);
   return { apiBaseUrl, apiToken, configured: !!(apiBaseUrl && apiToken) };
 }
 

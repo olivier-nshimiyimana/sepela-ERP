@@ -27,6 +27,11 @@ import {
   repeatChar,
   wrapLines,
 } from "./receiptText";
+import {
+  saleAppliedPromotionName,
+  saleItemsSubtotalUsd,
+  salePromotionDiscountUsd,
+} from "./saleTotals";
 
 export { RECEIPT_WIDTH };
 
@@ -64,14 +69,17 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
 
   push(...buildReceiptBanners(receiptType, transactionType, ctx, width, locale));
 
-  push(center(p.companyName?.toUpperCase() || t("receipt.invoice").toUpperCase(), width));
-  if (p.companyTagline) push(center(p.companyTagline, width));
   for (const addr of [p.addressLine1, p.addressLine2, p.cityProvince]) {
     if (addr) push(center(addr, width));
   }
-  if (p.taxId) push(center(t("receipt.taxId", { id: p.taxId }), width));
   if (p.phone) push(center(t("receipt.tel", { phone: p.phone }), width));
   if (p.email) push(center(p.email, width));
+  if (p.taxId) push(center(t("receipt.taxId", { id: p.taxId }), width));
+
+  push(thin);
+  const companyName = String(p.companyName ?? "").trim();
+  if (companyName) push(center(companyName.toUpperCase(), width));
+  if (p.companyTagline) push(center(p.companyTagline, width));
 
   push("");
   push(center(getDocumentTitle(receiptType, transactionType, p, locale), width));
@@ -113,8 +121,6 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
       push(ln);
     }
   }
-  push(labelValue(t("receipt.cashier"), sale.cashierName ?? "—", width));
-
   if (receiptType !== RECEIPT_TYPES.PROFORMA) {
     push(
       labelValue(
@@ -181,9 +187,30 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
   }
 
   push(thin);
-  const totalDual = formatDualCurrency(sale.totalUSD ?? 0, saleRate, primary);
-  push(labelValue(t("receipt.totalPrimary", { currency: totalDual.primaryCode }), totalDual.primary, width));
-  push(labelValue(t("receipt.totalPrimary", { currency: totalDual.secondaryCode }), totalDual.secondary, width));
+  const subtotalUSD = saleItemsSubtotalUsd(sale);
+  const promotionDiscountUSD = salePromotionDiscountUsd(sale);
+  const totalUSD = Number(sale.totalUSD) || 0;
+  const promotionName = saleAppliedPromotionName(sale, ctx.promotions ?? []);
+
+  const subtotalDual = formatDualCurrency(subtotalUSD, saleRate, primary);
+  push(
+    labelValue(
+      t("receipt.subtotal"),
+      subtotalDual.primary,
+      width
+    )
+  );
+
+  if (promotionDiscountUSD > 0.001) {
+    const discountDual = formatDualCurrency(promotionDiscountUSD, saleRate, primary);
+    const discountLabel = promotionName
+      ? t("receipt.promotionApplied", { name: promotionName })
+      : t("receipt.promotionDiscount");
+    push(labelValue(discountLabel, `-${discountDual.primary}`, width));
+  }
+
+  const totalDual = formatDualCurrency(totalUSD, saleRate, primary);
+  push(labelValue(t("common.total"), totalDual.primary, width));
 
   if (receiptType !== RECEIPT_TYPES.PROFORMA) {
     if (sale.reference) {
@@ -197,7 +224,6 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
     if (sale.changeDueUSD > 0) {
       const changeDual = formatDualCurrency(sale.changeDueUSD, saleRate, primary);
       push(labelValue(t("receipt.changePrimary", { currency: changeDual.primaryCode }), changeDual.primary, width));
-      push(labelValue(t("receipt.changePrimary", { currency: changeDual.secondaryCode }), changeDual.secondary, width));
     }
   }
 
@@ -214,6 +240,12 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
     }
   }
 
+  push(
+    center(
+      t("receipt.issuedBy", { name: sale.cashierName ?? translate("receipt.staffDefault", locale) }),
+      width
+    )
+  );
   push("");
   push(center(getPlatformCompanyLine(locale), width));
   push("");

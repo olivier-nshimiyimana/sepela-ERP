@@ -6,7 +6,16 @@ export const ACTIVE_BRANCH_KEY = "active_branch_code";
 export const CLOUD_SYNC_MERCHANT_CODE_KEY = "cloud_sync_merchant_code";
 const TENANT_MIGRATION_KEY = "tenant_columns_v6";
 
-const TENANT_TABLES = ["products", "customers", "suppliers", "sales", "purchase_orders", "stock_snapshots"];
+const TENANT_TABLES = [
+  "products",
+  "customers",
+  "suppliers",
+  "sales",
+  "purchase_orders",
+  "stock_snapshots",
+  "product_categories",
+  "promotions",
+];
 
 function nowIso() {
   return new Date().toISOString();
@@ -49,6 +58,13 @@ export async function migrateTenantColumns(db, ensureColumn) {
     String((await getMeta(db, CLOUD_SYNC_MERCHANT_CODE_KEY)) ?? "").trim() || "local";
 
   for (const table of TENANT_TABLES) {
+    const tableExists = await dbSelect(
+      db,
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+      [table]
+    );
+    if (!tableExists.length) continue;
+
     await dbExecute(
       db,
       `UPDATE ${table} SET merchant_code = ? WHERE merchant_code IS NULL OR merchant_code = ''`,

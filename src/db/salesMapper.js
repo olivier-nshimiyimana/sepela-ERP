@@ -27,6 +27,8 @@ export function rowToSale(row, items) {
     customerEmail: row.customer_email,
     customerTaxNumber: row.customer_tax_number,
     exchangeRate: row.exchange_rate,
+    promotionDiscountUSD: row.promotion_discount_usd ?? 0,
+    appliedPromotionId: row.applied_promotion_id ?? null,
     updatedAt: row.updated_at,
     syncStatus: row.sync_status,
     items: items.map((it) => ({

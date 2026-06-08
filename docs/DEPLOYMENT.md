@@ -137,11 +137,21 @@ Do **not** add the `devtools` feature to `src-tauri/Cargo.toml` unless you inten
 
 `npm run tauri dev` (debug) keeps devtools available for development.
 
+## Portal API (before desktop v1.0.0 ships)
+
+Redeploy **portal-api** on Render so cloud sync includes promotions and categories. Full steps: **[PORTAL_REDEPLOY.md](./PORTAL_REDEPLOY.md)**.
+
+```bash
+node scripts/verify-portal-api.js
+```
+
 ## Checklist before shipping
 
 - [ ] Update `legal/EULA.txt` and run `npm run legal:sync`
-- [ ] Bump app `version` in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`
+- [ ] App version **1.0.0** in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`
+- [ ] `VITE_PORTAL_API_TOKEN` set for `npm run build:installer`
+- [ ] `node scripts/verify-portal-api.js` then redeploy portal-api on Render
 - [ ] `npm run build:installer` on a clean Windows CI or build PC
-- [ ] Test installer: license page → install → first launch → login
+- [ ] Test installer: license page → install → first launch → login → sync → sale with promo → PDF
 - [ ] Sign the installer (production)
 - [ ] Distribute portal activation codes per merchant/device

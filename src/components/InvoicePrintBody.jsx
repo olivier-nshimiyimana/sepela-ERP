@@ -10,9 +10,20 @@ import {
   RECEIPT_TYPES,
   TRANSACTION_TYPES,
 } from "../domain/receiptTransaction";
+import {
+  saleAppliedPromotionName,
+  saleItemsSubtotalUsd,
+  salePromotionDiscountUsd,
+} from "../utils/saleTotals";
 
-/** Branded invoice layout for screen + print */
-export default function InvoicePrintBody({ sale, profile, formatId = "A4", receiptContext }) {
+/** Branded invoice layout for screen + print + PDF (hex CSS only — no Tailwind). */
+export default function InvoicePrintBody({
+  sale,
+  profile,
+  formatId = "A4",
+  receiptContext,
+  promotions = [],
+}) {
   const currency = useCurrency();
   const { t, locale } = useLocale();
   const saleRate = saleExchangeRate(sale, currency.exchangeRate);
@@ -29,8 +40,15 @@ export default function InvoicePrintBody({ sale, profile, formatId = "A4", recei
       ? t("receipt.proformaPayment")
       : sale.methodLabel ?? paymentMethodLabel(sale.method, locale) ?? "—";
 
+  const subtotalUSD = saleItemsSubtotalUsd(sale);
+  const promotionDiscountUSD = salePromotionDiscountUsd(sale);
+  const totalUSD = Number(sale.totalUSD) || 0;
+  const promotionName = saleAppliedPromotionName(sale, promotions);
+
+  const rootClass = `invoice-print-root ${isThermal ? "invoice-print-root--thermal" : "invoice-print-root--a4"}`;
+
   return (
-    <div className={`invoice-print-root ${isThermal ? "p-3 text-[10px]" : "p-8 text-sm"} font-sans leading-relaxed`}>
+    <div className={rootClass}>
       <ReceiptTypeBanner
         receiptType={receiptType}
         transactionType={transactionType}
@@ -38,91 +56,80 @@ export default function InvoicePrintBody({ sale, profile, formatId = "A4", recei
         copyIndex={receiptContext?.copyIndex ?? sale.copyIndex}
         t={t}
       />
-      <div className="inv-inner p-4 rounded-sm">
-        <div className="flex items-start justify-between">
-          <div className="inv-header-brand">
-            <CompanyLogo src={p.companyLogo} compact={isThermal} />
-            <div>
-              <h1 className={`inv-heading ${isThermal ? "text-lg" : "text-3xl"} font-black tracking-tight`}>
-                {p.companyName}
-              </h1>
-              <p className="text-xs inv-muted">{p.companyTagline}</p>
-              <p className="text-xs mt-2 font-bold uppercase">{p.invoiceTitle}</p>
-              {p.invoiceSubtitle && <p className="text-[11px] inv-soft">{p.invoiceSubtitle}</p>}
-            </div>
+      <div className="inv-inner">
+        <MerchantInvoiceHeader profile={p} isThermal={isThermal} t={t} />
+
+        <div className="inv-doc-header">
+          <div>
+            <p className="inv-doc-type">{p.invoiceTitle}</p>
+            {p.invoiceSubtitle ? <p className="inv-doc-subtitle">{p.invoiceSubtitle}</p> : null}
           </div>
-          <div className="text-right">
-            <p className={`inv-heading ${isThermal ? "text-xs" : "text-2xl"} font-semibold`}>
+          <div className="inv-meta-right">
+            <p className={`inv-heading ${isThermal ? "inv-heading-xs" : "inv-heading-md"}`}>
               {t("receipt.invoiceLabel", { number: sale.invoiceNumber ?? sale.id })}
             </p>
-            <p className="text-[11px] inv-soft">{new Date(sale.timestamp).toLocaleDateString()}</p>
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
+        <div className="inv-grid-2">
           <div>
-            <p className="font-bold uppercase">{t("receipt.billTo")}</p>
+            <p className="inv-label">{t("receipt.billTo")}</p>
             <p>{sale.customerName ?? t("payment.walkIn")}</p>
-            {sale.customerPhone && <p>{sale.customerPhone}</p>}
-            {sale.customerTaxNumber && (
-              <p className="font-mono">{t("payment.taxNumber")}: {sale.customerTaxNumber}</p>
-            )}
-            {sale.customerAddress && <p>{sale.customerAddress}</p>}
-            {sale.customerEmail && <p>{sale.customerEmail}</p>}
+            {sale.customerPhone ? <p>{sale.customerPhone}</p> : null}
+            {sale.customerTaxNumber ? (
+              <p className="inv-mono">
+                {t("payment.taxNumber")}: {sale.customerTaxNumber}
+              </p>
+            ) : null}
+            {sale.customerAddress ? <p>{sale.customerAddress}</p> : null}
+            {sale.customerEmail ? <p>{sale.customerEmail}</p> : null}
           </div>
-          <div className="text-right">
-            <p>
-              {t("receipt.issueDate", { date: new Date(sale.timestamp).toLocaleDateString() })}
-            </p>
+          <div className="inv-grid-right">
+            <p>{t("receipt.issueDate", { date: new Date(sale.timestamp).toLocaleDateString() })}</p>
             <p>{t("receipt.refShort", { ref: sale.invoiceNumber ?? sale.id })}</p>
-            <p>
-              {t("receipt.cashier")}: {sale.cashierName ?? t("receipt.staffDefault")}
-            </p>
             <p>
               {t("receipt.payment")}: {paymentLabel}
             </p>
-            {(receiptContext?.sdcReceiptCode ?? sale.sdcReceiptCode) && (
-              <p className="font-mono text-[10px] inv-light">
+            {(receiptContext?.sdcReceiptCode ?? sale.sdcReceiptCode) ? (
+              <p className="inv-light inv-mono">
                 SDC: {receiptContext?.sdcReceiptCode ?? sale.sdcReceiptCode}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
 
-        {refunded && (
-          <div className="inv-refund mt-3 p-2 text-xs font-bold rounded-sm">
+        {refunded ? (
+          <div className="inv-refund">
             {t("receipt.refundedAt", { date: new Date(sale.refund.at).toLocaleString() })}
-            {sale.refund?.reason && <span className="inv-refund-note"> ({sale.refund.reason})</span>}
+            {sale.refund?.reason ? (
+              <span className="inv-refund-note"> ({sale.refund.reason})</span>
+            ) : null}
           </div>
-        )}
+        ) : null}
 
-        <table className="w-full mt-4 text-xs border-collapse">
+        <table className="inv-table">
           <thead>
             <tr className="inv-table-head">
-              <th className="py-2 text-left">{t("receipt.description")}</th>
-              <th className="py-2 text-center">{t("common.qty")}</th>
-              <th className="py-2 text-right">
-                {t("receipt.unitPrice", { currency: currency.primaryCurrency })}
-              </th>
-              <th className="py-2 text-right">
-                {t("receipt.amount", { currency: currency.primaryCurrency })}
-              </th>
+              <th>{t("receipt.description")}</th>
+              <th className="inv-num">{t("common.qty")}</th>
+              <th className="inv-money">{t("receipt.unitPriceShort")}</th>
+              <th className="inv-money">{t("receipt.amount")}</th>
             </tr>
           </thead>
           <tbody>
             {(sale.items ?? []).map((it, i) => (
               <tr key={i} className="inv-row">
-                <td className="py-2">
+                <td>
                   {it.name}
-                  {it.lotNumber && (
-                    <div className="text-[10px] inv-light">
+                  {it.lotNumber ? (
+                    <div className="inv-light">
                       {t("pos.lot")} {it.lotNumber}
                     </div>
-                  )}
+                  ) : null}
                 </td>
-                <td className="py-2 text-center">{it.qty}</td>
-                <td className="py-2 text-right">{currency.formatPrimary(it.price, saleRate)}</td>
-                <td className="py-2 text-right">
+                <td className="inv-num inv-amount">{it.qty}</td>
+                <td className="inv-money inv-amount">{currency.formatPrimary(it.price, saleRate)}</td>
+                <td className="inv-money inv-amount">
                   {currency.formatPrimary(it.price * it.qty, saleRate)}
                 </td>
               </tr>
@@ -130,33 +137,77 @@ export default function InvoicePrintBody({ sale, profile, formatId = "A4", recei
           </tbody>
         </table>
 
-        <div className="mt-4 ml-auto w-full max-w-[280px] text-xs">
-          <div className="flex justify-between py-1">
+        <div className="inv-totals">
+          <div className="inv-totals-line">
             <span>{t("receipt.subtotal")}</span>
-            <span>{currency.formatPrimary(sale.totalUSD ?? 0, saleRate)}</span>
+            <span className="inv-amount">{currency.formatPrimary(subtotalUSD, saleRate)}</span>
           </div>
-          <div className="inv-total-row flex justify-between py-1 font-black">
-            <span>{t("receipt.totalCurrency", { currency: currency.primaryCurrency })}</span>
-            <span>{currency.formatPrimary(sale.totalUSD ?? 0, saleRate)}</span>
-          </div>
-          <div className="flex justify-between py-1">
-            <span>{t("receipt.totalCurrency", { currency: currency.secondaryCurrency })}</span>
-            <span>{currency.formatSecondary(sale.totalUSD ?? 0, saleRate)}</span>
+          {promotionDiscountUSD > 0.001 ? (
+            <div className="inv-totals-line inv-promo-line">
+              <span>
+                {promotionName
+                  ? t("receipt.promotionApplied", { name: promotionName })
+                  : t("receipt.promotionDiscount")}
+              </span>
+              <span className="inv-amount">-{currency.formatPrimary(promotionDiscountUSD, saleRate)}</span>
+            </div>
+          ) : null}
+          <div className="inv-totals-line inv-total-row">
+            <span>{t("common.total")}</span>
+            <span className="inv-amount">{currency.formatPrimary(totalUSD, saleRate)}</span>
           </div>
         </div>
 
-        <div className="mt-8 text-xs inv-muted">
-          {p.footerTitle && <p className="font-bold uppercase mb-1">{p.footerTitle}</p>}
-          {p.footerBody && <p className="whitespace-pre-wrap">{p.footerBody}</p>}
-          <p className="mt-4">
+        <div className="inv-footer">
+          {p.footerTitle ? <p className="inv-footer-title">{p.footerTitle}</p> : null}
+          {p.footerBody ? <p className="inv-footer-body">{p.footerBody}</p> : null}
+          <p className="inv-footer-issued">
             {t("receipt.issuedBy", { name: sale.cashierName ?? t("receipt.staffDefault") })}
           </p>
-          <p className="mt-3 text-[10px] inv-light font-semibold uppercase tracking-wide">
-            {getPlatformCompanyLine(locale)}
-          </p>
+          <p className="inv-footer-brand">{getPlatformCompanyLine(locale)}</p>
         </div>
       </div>
     </div>
+  );
+}
+
+function MerchantInvoiceHeader({ profile, isThermal, t }) {
+  const hasContact =
+    profile.addressLine1 ||
+    profile.addressLine2 ||
+    profile.cityProvince ||
+    profile.phone ||
+    profile.email ||
+    profile.taxId;
+
+  const companyName = String(profile.companyName ?? "").trim();
+
+  return (
+    <header className="inv-merchant-header">
+      <div className="inv-merchant-top">
+        <div className="inv-merchant-logo">
+          <CompanyLogo src={profile.companyLogo} compact={isThermal} />
+        </div>
+        {hasContact ? (
+          <div className="inv-merchant-details">
+            {profile.addressLine1 ? <p>{profile.addressLine1}</p> : null}
+            {profile.addressLine2 ? <p>{profile.addressLine2}</p> : null}
+            {profile.cityProvince ? <p>{profile.cityProvince}</p> : null}
+            {profile.phone ? <p>{t("receipt.tel", { phone: profile.phone })}</p> : null}
+            {profile.email ? <p>{profile.email}</p> : null}
+            {profile.taxId ? <p>{t("receipt.taxId", { id: profile.taxId })}</p> : null}
+          </div>
+        ) : (
+          <div />
+        )}
+        <div className="inv-merchant-top-spacer" aria-hidden="true" />
+      </div>
+      <hr className="inv-merchant-rule" />
+      {companyName ? <h1 className="inv-merchant-name">{companyName}</h1> : null}
+      {profile.companyTagline ? (
+        <p className="inv-merchant-tagline">{profile.companyTagline}</p>
+      ) : null}
+    </header>
   );
 }
 
@@ -175,7 +226,7 @@ function ReceiptTypeBanner({ receiptType, transactionType, sdcCode, copyIndex, t
   return (
     <div className={`inv-receipt-banner inv-banner-${receiptType.toLowerCase()}`}>
       <p className="inv-banner-title">{label}</p>
-      {sdcCode && <p className="inv-banner-code font-mono">{sdcCode}</p>}
+      {sdcCode ? <p className="inv-banner-code">{sdcCode}</p> : null}
     </div>
   );
 }

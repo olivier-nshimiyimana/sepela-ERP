@@ -98,6 +98,10 @@ export function getStoredOperatorSession() {
   }
 }
 
+export function hasOperatorSession() {
+  return !!getStoredOperatorSession();
+}
+
 function buildSessionHeaders(apiToken, sessionToken, includeJson = false) {
   return {
     ...buildHeaders(apiToken, includeJson),

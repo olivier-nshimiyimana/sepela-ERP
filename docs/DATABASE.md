@@ -1,5 +1,18 @@
 # Sepela ERP — Database architecture
 
+## Where `sepela.db` lives (Windows)
+
+The database is **not** under `C:\Program Files\Sepela ERP` — that folder is the read-only app install.
+
+| Priority | Path |
+|----------|------|
+| Primary | `D:\SepelaERP\data\sepela.db` |
+| Fallback (no `D:\` drive) | `C:\SepelaERP\data\sepela.db` |
+
+On first launch, if the new path is empty but a legacy file exists at `%APPDATA%\com.sepela.erp\sepela.db`, the desktop app copies it once into the new location.
+
+Browser-only dev (`npm run dev` in Chrome) still uses **localStorage**, not this SQLite file.
+
 ## Overview
 
 Sepela ERP is **multi-tenant** and **offline-first**:
@@ -54,7 +67,20 @@ One `inventory_breakdown` row per product batch (`product_id` PK, FK with `ON DE
 
 ## SQLite schema version
 
-Current `SCHEMA_VERSION`: **7** (adds `inventory_breakdown`).
+Current `SCHEMA_VERSION`: **9** (promotions + product categories + `client_tier` / `category_id`).
+
+### Promotions (schema v9)
+
+| Table | Purpose |
+|-------|---------|
+| `product_categories` | Category codes for `specific_category` promotion scope |
+| `promotions` | Conditional discount rules (percentage or fixed amount) |
+
+Promotion fields: `target_scope` (`all_products` \| `specific_category` \| `specific_product`), `discount_type` (`percentage` \| `fixed_amount`), optional `client_tier`, optional `min_order_amount`, `start_date` / `end_date`, `is_active`.
+
+POS evaluation (offline): `src/utils/promotionEngine.js` → `evaluateCartPromotions()`.
+
+Cloud mirror: `sync_promotions`, `sync_product_categories` (PostgreSQL).
 
 Migration copies existing `products.stock` into `stock_quantity_items` with defaults (`buy_unit = Unit`, `qty_per_unit = 1`).
 

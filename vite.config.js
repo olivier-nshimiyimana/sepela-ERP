@@ -20,7 +20,7 @@ export default defineConfig(async () => ({
     proxy: {
       "/portal-api": {
         target:
-          process.env.VITE_PORTAL_API_URL || "https://sepela-erp-api.onrender.com",
+          process.env.VITE_PORTAL_API_URL?.trim() || "https://sepela-erp-api.onrender.com",
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/portal-api/, ""),

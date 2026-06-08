@@ -179,10 +179,25 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
 
       const branchFilter = query.branchCode?.trim() || null;
       const rows = await client.query(
-        `SELECT branch_code, device_code, payload
-         FROM sync_sales
-         WHERE merchant_code = $1
-           AND ($2::text IS NULL OR branch_code = $2)`,
+        `SELECT s.branch_code, s.device_code, s.payload
+         FROM sync_sales s
+         WHERE s.merchant_code = $1
+           AND ($2::text IS NULL OR s.branch_code = $2)
+           AND NOT EXISTS (
+             SELECT 1
+             FROM operators o
+             JOIN merchants m ON m.id = o.merchant_id
+             WHERE m.code <> $1
+               AND o.status = 'ACTIVE'
+               AND (
+                 o.id::text = COALESCE(s.payload->>'cashierId', s.payload->>'cashier_id', '')
+                 OR (
+                   COALESCE(s.payload->>'cashierId', s.payload->>'cashier_id', '') = ''
+                   AND lower(trim(o.display_name)) = lower(trim(COALESCE(s.payload->>'cashierName', s.payload->>'cashier_name', '')))
+                   AND COALESCE(s.payload->>'cashierName', s.payload->>'cashier_name', '') <> ''
+                 )
+               )
+           )`,
         [merchantCode, branchFilter]
       );
 

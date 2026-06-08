@@ -32,6 +32,8 @@ export default function PosScreen({
   onPaymentComplete,
   onProforma,
   onOpenProducts,
+  promotions = [],
+  evaluateCartPromotions,
 }) {
   const { t, tError } = useLocale();
   const [searchTerm, setSearchTerm] = useState("");
@@ -335,6 +337,10 @@ export default function PosScreen({
       <PaymentModal
         isOpen={isPaymentOpen}
         customers={customers}
+        cart={cart}
+        products={products}
+        promotions={promotions}
+        evaluateCartPromotions={evaluateCartPromotions}
         totalUSD={totalUSD}
         exchangeRate={exchangeRate}
         primaryCurrency={primaryCurrency}

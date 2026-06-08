@@ -1,6 +1,6 @@
 [package]
 name = "sepela-erp-system"
-version = "0.1.0"
+version = "1.0.0"
 description = "Sepela ERP — point of sale and store management"
 authors = ["SEPELA INC"]
 license = "Proprietary"

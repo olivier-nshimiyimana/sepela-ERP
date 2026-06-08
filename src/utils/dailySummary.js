@@ -70,6 +70,12 @@ export function formatDailyWhatsAppSummary(data, primaryCurrency = DEFAULT_PRIMA
     `Sales: ${formatMoneyPairLine(data.stats.totalUSD, rate, primary)}`,
   ];
 
+  if ((data.stats.totalPromotionDiscountUSD ?? 0) > 0) {
+    lines.push(
+      `Promotions saved: ${formatMoneyPrimary(data.stats.totalPromotionDiscountUSD, rate, primary)}`
+    );
+  }
+
   const byMethod = Object.entries(data.stats.byMethod);
   if (byMethod.length > 0) {
     lines.push("Payment methods:");

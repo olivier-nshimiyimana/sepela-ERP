@@ -5,49 +5,30 @@ import InvoicePrintBody from "./InvoicePrintBody";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { useLocale } from "../contexts/LocaleContext";
 import { formatInvoicePlainText } from "../utils/invoiceText";
-import { getInvoiceFormat, getInvoiceFormatLabel, INVOICE_FORMATS } from "../utils/invoiceFormats";
+import {
+  getInvoiceFormat,
+  getInvoiceFormatLabel,
+  getInvoicePageCssSize,
+  getInvoicePdfFormat,
+  INVOICE_FORMATS,
+} from "../utils/invoiceFormats";
+import { invoicePrintStylesheet, invoiceWidthPx } from "../utils/invoiceCapture";
+import { saveInvoiceAsPdf } from "../utils/domPdf";
 
 const Box = "d" + "iv";
 
-/** Drop blank rows from bottom of raster (fixes inflated capture height). */
-function trimCanvasBottomWhitespace(canvas, opts = {}) {
-  const { minKeep = 40, whiteMin = 248 } = opts;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
-  const { width, height } = canvas;
-  if (height <= minKeep) return canvas;
-  const data = ctx.getImageData(0, 0, width, height).data;
-
-  const rowHasNonWhite = (y) => {
-    const row = y * width * 4;
-    for (let x = 0; x < width; x++) {
-      const i = row + x * 4;
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const a = data[i + 3];
-      if (a < 8) continue;
-      if (r < whiteMin || g < whiteMin || b < whiteMin) return true;
-    }
-    return false;
-  };
-
-  let bottom = height;
-  while (bottom > minKeep && !rowHasNonWhite(bottom - 1)) bottom -= 1;
-  if (bottom >= height) return canvas;
-
-  const trimmed = document.createElement("canvas");
-  trimmed.width = width;
-  trimmed.height = bottom;
-  trimmed.getContext("2d").drawImage(canvas, 0, 0, width, bottom, 0, 0, width, bottom);
-  return trimmed;
-}
-
-export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptContext, onClose }) {
+export default function InvoiceModal({
+  isOpen,
+  sale,
+  invoiceProfile,
+  receiptContext,
+  promotions = [],
+  onClose,
+}) {
   const { primaryCurrency, exchangeRate } = useCurrency();
   const { t, locale } = useLocale();
   const previewRef = useRef(null);
-  const exportRef = useRef(null);
+  const captureRef = useRef(null);
   const [selectedFormat, setSelectedFormat] = useState(
     invoiceProfile.defaultPrintFormat || "A4"
   );
@@ -61,22 +42,55 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
   const format = getInvoiceFormat(selectedFormat);
   if (!isOpen || !sale) return null;
 
+  const captureWidthPx = invoiceWidthPx(format.widthMm);
+  const sheetStyle = {
+    width: `${format.widthMm}mm`,
+    maxWidth: "100%",
+    minHeight: `${format.minHeightMm}mm`,
+    margin: "0 auto",
+    background: "#ffffff",
+  };
+  const captureSheetStyle = {
+    width: `${captureWidthPx}px`,
+    margin: 0,
+    background: "#ffffff",
+  };
+
   const plain = formatInvoicePlainText(sale, invoiceProfile, {
     ...(receiptContext ?? {}),
     primaryCurrency,
     exchangeRate,
     locale,
+    promotions,
   });
 
+  const invoiceBody = (
+    <InvoicePrintBody
+      sale={sale}
+      profile={invoiceProfile}
+      formatId={format.id}
+      receiptContext={receiptContext}
+      promotions={promotions}
+    />
+  );
+
+  function getCaptureRoot() {
+    const wrap = captureRef.current;
+    if (!wrap) return null;
+    return wrap.querySelector(".invoice-print-root") ?? wrap;
+  }
+
   const handlePrint = () => {
-    const wrap = exportRef.current ?? previewRef.current;
-    if (!wrap) return;
+    const root = getCaptureRoot();
+    if (!root) return;
     const w = window.open("", "_blank", "width=420,height=720");
     if (!w) return;
-    const root = wrap.innerHTML;
+    const pageSize = getInvoicePageCssSize(format.id);
+    const invoiceCss = invoicePrintStylesheet();
     w.document.write(`<!DOCTYPE html><html><head><title>${t("invoiceModal.printTitle", { number: sale.invoiceNumber ?? sale.id })}</title>
       <style>
-        body { margin: 0; font-family: Georgia, serif; background: #fff; }
+        ${invoiceCss}
+        body { margin: 0; font-family: "Segoe UI", Arial, Helvetica, sans-serif; background: #fff; }
         .sheet {
           width: ${format.widthMm}mm;
           min-height: 0;
@@ -84,11 +98,11 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
           background: #fff;
         }
         @page {
-          size: ${format.id === "LETTER" ? "Letter" : format.id === "THERMAL_80" ? "80mm auto" : "A4"};
+          size: ${pageSize};
           margin: 8mm;
         }
         @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-      </style></head><body><div class="sheet">${root}</div></body></html>`);
+      </style></head><body><div class="sheet">${root.outerHTML}</div></body></html>`);
     w.document.close();
     w.focus();
     w.print();
@@ -104,67 +118,12 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
   };
 
   const handleSavePdf = async () => {
-    const wrap = exportRef.current ?? previewRef.current;
-    if (!wrap) return;
-    const node = wrap.querySelector?.(".invoice-print-root") ?? wrap;
+    const node = getCaptureRoot();
+    if (!node) return;
     try {
-      try {
-        await document.fonts?.ready;
-      } catch {
-        /* ignore */
-      }
-      const [{ default: html2canvas }, jspdfMod] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ]);
-      const JsPDF = jspdfMod.jsPDF ?? jspdfMod.default;
-      if (typeof JsPDF !== "function") {
-        throw new Error(t("invoiceModal.pdfFailed", { error: "jsPDF" }));
-      }
-      const canvasRaw = await html2canvas(node, {
-        scale: 2,
-        backgroundColor: "#ffffff",
-        useCORS: true,
-      });
-      const canvas = trimCanvasBottomWhitespace(canvasRaw);
-      const img = canvas.toDataURL("image/png");
-
-      // Match jsPDF page width for this print format (used to scale the raster).
-      const probe = new JsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: format.id === "LETTER" ? "letter" : format.id === "THERMAL_80" ? [80, 297] : "a4",
-      });
-      const pageW = probe.internal.pageSize.getWidth();
-      const maxPageH = probe.internal.pageSize.getHeight();
-
-      const imgWidth = pageW;
-      const imgHeight = (canvas.height * pageW) / canvas.width;
-      const imgHMm = Math.max(imgHeight, 0.5);
-
-      /** Each PDF page height = slice only (fixes full blank area in Acrobat). */
-      const EPS = 0.25;
-      let pdf = null;
-      for (let yOff = 0; yOff < imgHMm - EPS; yOff += maxPageH) {
-        const remaining = imgHMm - yOff;
-        const sliceH = Math.min(maxPageH, remaining);
-        if (pdf == null) {
-          pdf = new JsPDF({
-            orientation: "portrait",
-            unit: "mm",
-            format: [pageW, sliceH],
-          });
-        } else {
-          pdf.addPage([pageW, sliceH], "portrait");
-        }
-        pdf.addImage(img, "PNG", 0, -yOff, imgWidth, imgHeight);
-      }
-      if (!pdf) {
-        throw new Error(t("invoiceModal.captureEmpty"));
-      }
       const raw = String(sale.invoiceNumber ?? sale.id ?? "invoice");
       const safe = raw.replace(/[/\\:*?"<>|]/g, "-").trim().slice(0, 120) || "invoice";
-      pdf.save(`${safe}.pdf`);
+      await saveInvoiceAsPdf(node, safe, { format: getInvoicePdfFormat(format.id) });
       alert(t("invoiceModal.pdfSaved"));
     } catch (e) {
       console.error(e);
@@ -221,44 +180,27 @@ export default function InvoiceModal({ isOpen, sale, invoiceProfile, receiptCont
           </Box>
         </Box>
         <Box className="overflow-y-auto flex-1 p-2 bg-gray-300">
-          <div ref={previewRef} style={{ width: `${format.widthMm}mm`, minHeight: `${format.minHeightMm}mm`, margin: "0 auto" }}>
-            <InvoicePrintBody
-              sale={sale}
-              profile={invoiceProfile}
-              formatId={format.id}
-              receiptContext={receiptContext}
-            />
+          <div ref={previewRef} style={sheetStyle}>
+            {invoiceBody}
           </div>
         </Box>
       </Box>
+
       {createPortal(
         <div
           aria-hidden
           style={{
             position: "fixed",
-            left: "-10000px",
+            left: "-12000px",
             top: 0,
-            pointerEvents: "none",
-            width: "auto",
-            height: "auto",
+            width: captureWidthPx,
             overflow: "visible",
+            pointerEvents: "none",
+            background: "#ffffff",
           }}
         >
-          <div
-            ref={exportRef}
-            style={{
-              width: `${format.widthMm}mm`,
-              margin: 0,
-              display: "block",
-              boxSizing: "border-box",
-            }}
-          >
-            <InvoicePrintBody
-              sale={sale}
-              profile={invoiceProfile}
-              formatId={format.id}
-              receiptContext={receiptContext}
-            />
+          <div ref={captureRef} style={captureSheetStyle}>
+            {invoiceBody}
           </div>
         </div>,
         document.body

@@ -313,16 +313,20 @@ function App() {
     return body as T;
   }
 
-  async function refreshAll() {
+  async function refreshAll(options?: { silent?: boolean }) {
     if (!connectionReady) {
-      setMessageTone("error");
-      setMessage("Configure connection first.");
+      if (!options?.silent) {
+        setMessageTone("error");
+        setMessage("Configure connection first.");
+      }
       return;
     }
 
     setBusy(true);
-    setMessageTone("neutral");
-    setMessage("Refreshing…");
+    if (!options?.silent) {
+      setMessageTone("neutral");
+      setMessage("Refreshing…");
+    }
     try {
       const [overviewRes, merchantsRes, operatorsRes, activationRes, leasesRes, syncRes] = await Promise.all([
         portalFetch<{ overview: Overview }>("/admin/overview"),
@@ -339,15 +343,24 @@ function App() {
       setActivationCodes(activationRes.activationCodes);
       setLeases(leasesRes.leases);
       setSyncIngestions(syncRes.syncIngestions);
-      setMessageTone("success");
-      setMessage("Data refreshed.");
+      if (!options?.silent) {
+        setMessageTone("success");
+        setMessage("Data refreshed.");
+      }
     } catch (error) {
-      setMessageTone("error");
-      setMessage(error instanceof Error ? error.message : "Refresh failed.");
+      if (!options?.silent) {
+        setMessageTone("error");
+        setMessage(error instanceof Error ? error.message : "Refresh failed.");
+      }
     } finally {
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (!connectionReady) return;
+    void refreshAll({ silent: true });
+  }, [connectionReady]);
 
   async function handleBootstrapTenant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -595,7 +608,7 @@ function App() {
           >
             Connection
           </button>
-          <button type="button" className="primary-button" onClick={refreshAll} disabled={busy}>
+          <button type="button" className="primary-button" onClick={() => void refreshAll()} disabled={busy}>
             {busy ? "…" : "Refresh"}
           </button>
         </div>
@@ -641,7 +654,7 @@ function App() {
           >
             <div className="stats-grid">
               {statCards.length === 0 ? (
-                <EmptyState text="Refresh to load metrics." />
+                <EmptyState text={busy ? "Loading metrics…" : "No metrics available."} />
               ) : (
                 statCards.map((card) => (
                   <article key={card.label} className="stat-card">

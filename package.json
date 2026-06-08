@@ -1,7 +1,7 @@
 {
   "name": "sepela-erp-system",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,8 @@
     "icons": "python scripts/fit-appicon.py && tauri icon appicon.png",
     "legal:sync": "node scripts/sync-legal.js",
     "build:win": "npm run legal:sync && npm run build && tauri build --bundles nsis",
-    "build:installer": "npm run legal:sync && npm run build && tauri build"
+    "build:installer": "npm run legal:sync && npm run build && tauri build",
+    "verify:portal-api": "node scripts/verify-portal-api.js"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.2.1",

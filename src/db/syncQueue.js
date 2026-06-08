@@ -1,4 +1,14 @@
-const SYNC_TABLES = ["products", "customers", "suppliers", "sales", "purchases", "settings", "stockSnapshots"];
+const SYNC_TABLES = [
+  "products",
+  "customers",
+  "suppliers",
+  "sales",
+  "purchases",
+  "settings",
+  "stockSnapshots",
+  "productCategories",
+  "promotions",
+];
 
 function normalizeResultBucket(entries, keyField = "id") {
   if (!Array.isArray(entries)) return [];

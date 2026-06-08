@@ -10,6 +10,7 @@ import ProductManageModal from "./components/ProductManageModal";
 import RefundConfirmModal from "./components/RefundConfirmModal";
 import ReportsScreen from "./components/ReportsScreen";
 import SettingsModal from "./components/SettingsModal";
+import PromotionManageModal from "./components/PromotionManageModal";
 import UserManageModal from "./components/UserManageModal";
 import { useAuth } from "./contexts/AuthContext";
 import { useCart } from "./hooks/useCart";
@@ -19,6 +20,7 @@ import { translate } from "./i18n";
 import { useDatabase } from "./contexts/DatabaseContext";
 import { buildAppBackup, validateAppBackup } from "./utils/backupFormat";
 import { expandCartToSaleItems } from "./utils/fefo";
+import { usdToCdf } from "./utils/currency";
 import {
   receiptContextForCopy,
   receiptContextForProforma,
@@ -39,6 +41,8 @@ function summarizeSyncQueue(queue = {}) {
     purchases: queue.purchases?.length ?? 0,
     settings: queue.settings?.length ?? 0,
     stockSnapshots: queue.stockSnapshots?.length ?? 0,
+    productCategories: queue.productCategories?.length ?? 0,
+    promotions: queue.promotions?.length ?? 0,
   };
   return {
     ...summary,
@@ -106,6 +110,12 @@ export default function App() {
     listPendingSync,
     licenseAccepted,
     acceptLicenseAgreement,
+    promotions,
+    productCategories,
+    evaluateCartPromotions,
+    savePromotion,
+    saveProductCategory,
+    deletePromotion,
   } = db;
 
   const {
@@ -121,6 +131,7 @@ export default function App() {
   const [isProductsOpen, setIsProductsOpen] = useState(false);
   const [isClientsOpen, setIsClientsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isPromotionsOpen, setIsPromotionsOpen] = useState(false);
   const [isUsersOpen, setIsUsersOpen] = useState(false);
   const [isInvoiceHistoryOpen, setIsInvoiceHistoryOpen] = useState(false);
   const [invoiceModalSale, setInvoiceModalSale] = useState(null);
@@ -189,8 +200,30 @@ export default function App() {
       customer = saved.customer;
     }
 
+    const customerForPromo =
+      customer ??
+      (summary.customerId ? customers.find((row) => row.id === summary.customerId) : null);
+    const promoResult = evaluateCartPromotions
+      ? evaluateCartPromotions({
+          cart: cartItems,
+          products,
+          promotions: promotions ?? [],
+          customer: customerForPromo,
+        })
+      : {
+          totalAfterDiscountUSD: summary.totalUSD,
+          totalDiscountUSD: summary.promotionDiscountUSD ?? 0,
+          appliedPromotionIds: summary.appliedPromotionId ? [summary.appliedPromotionId] : [],
+        };
+    const finalTotalUSD = promoResult.totalAfterDiscountUSD;
+    const finalTotalCDF = usdToCdf(finalTotalUSD, exchangeRate);
+
     const sale = await recordSale({
       ...summary,
+      totalUSD: finalTotalUSD,
+      totalCDF: finalTotalCDF,
+      promotionDiscountUSD: promoResult.totalDiscountUSD,
+      appliedPromotionId: promoResult.appliedPromotionIds?.[0] ?? null,
       customerId: customer?.id ?? summary.customerId ?? null,
       customerName: customer?.name ?? summary.customerName?.trim() ?? null,
       customerPhone: customer?.phone ?? summary.customerPhone?.trim() ?? null,
@@ -201,8 +234,13 @@ export default function App() {
       items: saleItems,
       cashierId: user.id,
       cashierName: user.displayName,
+      merchantCode: user.merchantCode,
       exchangeRate,
     });
+    if (sale?.ok === false) {
+      alert(sale.error ?? "Could not record sale.");
+      return false;
+    }
     await decrementStockForSale(saleItems);
     if (!trainingMode) {
       const amount = Number(sale?.totalUSD ?? summary?.totalUSD ?? 0);
@@ -358,6 +396,7 @@ export default function App() {
         onOpenProducts={() => setIsProductsOpen(true)}
         onOpenClients={() => setIsClientsOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenPromotions={() => setIsPromotionsOpen(true)}
         onOpenReports={() => {}}
         onOpenUsers={() => setIsUsersOpen(true)}
         hideLocalUserManagement={cloudConfigured}
@@ -383,6 +422,8 @@ export default function App() {
           onPaymentComplete={handlePaymentComplete}
           onProforma={handleProforma}
           onOpenProducts={() => setIsProductsOpen(true)}
+          promotions={promotions}
+          evaluateCartPromotions={evaluateCartPromotions}
         />
       )}
 
@@ -393,8 +434,10 @@ export default function App() {
           portalApiBaseUrl={portal.apiBaseUrl}
           portalApiToken={portal.apiToken}
           cloudConfigured={cloudConfigured}
+          authMode={authMode}
           sales={sales}
           products={products}
+          promotions={promotions ?? []}
           stockSnapshots={stockSnapshots}
           exchangeRate={exchangeRate}
           expiryAlertDays={expiryAlertDays}
@@ -404,6 +447,7 @@ export default function App() {
       <ProductManageModal
         isOpen={isProductsOpen}
         products={products}
+        productCategories={productCategories ?? []}
         suppliers={suppliers}
         purchases={purchases}
         expiryAlertDays={expiryAlertDays}
@@ -456,6 +500,17 @@ export default function App() {
         onRestoreBackup={handleRestoreBackup}
       />
 
+      <PromotionManageModal
+        isOpen={isPromotionsOpen}
+        promotions={promotions ?? []}
+        productCategories={productCategories ?? []}
+        products={products}
+        onClose={() => setIsPromotionsOpen(false)}
+        onSave={savePromotion}
+        onSaveCategory={saveProductCategory}
+        onDelete={deletePromotion}
+      />
+
       <UserManageModal
         isOpen={isUsersOpen}
         users={users}
@@ -469,6 +524,7 @@ export default function App() {
         isOpen={isInvoiceHistoryOpen}
         onClose={() => setIsInvoiceHistoryOpen(false)}
         sales={sales}
+        promotions={promotions ?? []}
         user={user}
         onViewInvoice={handleViewInvoiceCopy}
         onRefund={(sale) => setRefundTargetSale(sale)}
@@ -480,6 +536,7 @@ export default function App() {
           sale={invoiceModalSale}
           invoiceProfile={invoiceProfile}
           receiptContext={invoiceReceiptContext}
+          promotions={promotions ?? []}
           onClose={() => {
             setInvoiceModalSale(null);
             setInvoiceReceiptContext(null);

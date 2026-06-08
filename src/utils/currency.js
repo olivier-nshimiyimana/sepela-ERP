@@ -28,7 +28,7 @@ export function cdfToUsd(amountCdf, exchangeRate) {
 export function formatMoneyCDF(amount) {
   const n = Math.round(Number(amount));
   if (!Number.isFinite(n)) return "0 FC";
-  return `${n.toLocaleString()} FC`;
+  return `${n.toLocaleString()}\u00a0FC`;
 }
 
 /** Primary + secondary labels for a USD-stored amount. */

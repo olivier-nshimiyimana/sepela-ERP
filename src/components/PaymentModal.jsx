@@ -12,16 +12,32 @@ import {
 } from "../utils/currency";
 import { findMatchingCustomer, sortCustomers } from "../utils/customers";
 import { useLocale } from "../contexts/LocaleContext";
+import { useCurrency } from "../contexts/CurrencyContext";
 import { paymentMethodLabel } from "../i18n";
+import {
+  appliedPromotionLabels,
+  findCheckoutPromotionHint,
+  findTierQuickPickCustomers,
+  promotionQualifyingSubtotalUsd,
+} from "../utils/promotionEngine";
 
 const EPSILON = 0.001;
 const Box = "d" + "iv";
 
 const MIN_MOBILE_REF_LENGTH = 6;
 
+function isEditableField(target) {
+  const tag = target?.tagName?.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable;
+}
+
 export default function PaymentModal({
   isOpen,
   customers = [],
+  cart = [],
+  products = [],
+  promotions = [],
+  evaluateCartPromotions,
   totalUSD,
   exchangeRate,
   primaryCurrency,
@@ -29,6 +45,7 @@ export default function PaymentModal({
   onComplete,
 }) {
   const { t, locale } = useLocale();
+  const currency = useCurrency();
   const primary = normalizePrimaryCurrency(primaryCurrency);
   const [method, setMethod] = useState("cash");
   const [amountReceived, setAmountReceived] = useState("");
@@ -46,8 +63,6 @@ export default function PaymentModal({
   const validateBtnRef = useRef(null);
   const finishNoPrintRef = useRef(null);
 
-  const totalCDF = usdToCdf(totalUSD, exchangeRate);
-  const totalDual = formatDualCurrency(totalUSD, exchangeRate, primary);
   const methodMeta = getPaymentMethod(method);
   const savedCustomers = useMemo(() => sortCustomers(customers), [customers]);
 
@@ -72,11 +87,6 @@ export default function PaymentModal({
   const receivedRaw = parseFloat(amountReceived) || 0;
   const isValidCashAmount = !Number.isNaN(receivedRaw) && receivedRaw >= 0;
   const receivedUsd = cashReceivedToUsd(receivedRaw, exchangeRate, primary);
-  const { canPay: cashCanPay, changeDueUSD, shortfallUSD: shortfall } = computeCashPayment(
-    receivedUsd,
-    totalUSD
-  );
-  const cashCanPayValid = totalUSD > 0 && isValidCashAmount && cashCanPay;
 
   const mobileRefOk = reference.trim().length >= MIN_MOBILE_REF_LENGTH;
   const cardLastFourOk =
@@ -88,6 +98,84 @@ export default function PaymentModal({
     customerAddress.trim().length > 0 ||
     customerEmail.trim().length > 0;
   const isWalkInClient = !hasAnyClientInput;
+
+  const selectedCustomer = useMemo(() => {
+    if (isWalkInClient) return null;
+    if (customerId) {
+      const saved = savedCustomers.find((c) => c.id === customerId);
+      if (saved) return saved;
+    }
+    return {
+      id: customerId || null,
+      name: customerName.trim(),
+      clientTier: null,
+    };
+  }, [customerId, customerName, isWalkInClient, savedCustomers]);
+
+  /** Tier promos use the saved client record only — no manual tier entry at checkout. */
+  const customerForPromotions = useMemo(() => {
+    if (isWalkInClient) return null;
+    if (customerId) {
+      return savedCustomers.find((c) => c.id === customerId) ?? null;
+    }
+    const matched = findMatchingCustomer(savedCustomers, { name: customerName });
+    return matched ?? null;
+  }, [customerId, customerName, isWalkInClient, savedCustomers]);
+
+  const promotionResult = useMemo(() => {
+    const subtotal = totalUSD;
+    if (!evaluateCartPromotions || cart.length === 0) {
+      return {
+        cartSubtotalUSD: subtotal,
+        totalDiscountUSD: 0,
+        totalAfterDiscountUSD: subtotal,
+        appliedPromotionIds: [],
+      };
+    }
+    return evaluateCartPromotions({
+      cart,
+      products,
+      promotions,
+      customer: customerForPromotions,
+    });
+  }, [cart, products, promotions, customerForPromotions, totalUSD, evaluateCartPromotions]);
+
+  const payableUSD = promotionResult.totalAfterDiscountUSD;
+  const discountUSD = promotionResult.totalDiscountUSD;
+
+  const appliedPromoNames = useMemo(
+    () => appliedPromotionLabels(promotions, promotionResult.appliedPromotionIds),
+    [promotions, promotionResult.appliedPromotionIds]
+  );
+
+  const promotionHint = useMemo(() => {
+    if (promotionResult.totalDiscountUSD > 0 || !promotions?.length || cart.length === 0) return null;
+    return findCheckoutPromotionHint({
+      promotions,
+      cart,
+      products,
+      customer: customerForPromotions,
+      cartSubtotalUsd: totalUSD,
+    });
+  }, [promotions, cart, products, customerForPromotions, totalUSD, promotionResult.totalDiscountUSD]);
+
+  const tierQuickPickCustomers = useMemo(
+    () =>
+      findTierQuickPickCustomers({
+        promotions,
+        cart,
+        products,
+        customers: savedCustomers,
+        customer: customerForPromotions,
+        cartSubtotalUsd: totalUSD,
+      }),
+    [promotions, cart, products, savedCustomers, customerForPromotions, totalUSD]
+  );
+  const totalCDF = usdToCdf(payableUSD, exchangeRate);
+  const totalDual = formatDualCurrency(payableUSD, exchangeRate, primary);
+  const subtotalDual = formatDualCurrency(totalUSD, exchangeRate, primary);
+  const discountDual = formatDualCurrency(discountUSD, exchangeRate, primary);
+
   const customerInfoOk =
     isWalkInClient ||
     (customerName.trim().length > 0 &&
@@ -111,10 +199,15 @@ export default function PaymentModal({
     return filtered.slice(0, 8);
   }, [customerName, savedCustomers]);
 
+  const { canPay: cashCanPayDiscounted, changeDueUSD: changeDueDiscounted, shortfallUSD: shortfallDiscounted } =
+    computeCashPayment(receivedUsd, payableUSD);
+  const cashCanPayValidDiscounted =
+    payableUSD > 0 && isValidCashAmount && cashCanPayDiscounted;
+
   const canValidate =
-    totalUSD > 0 &&
+    payableUSD > 0 &&
     customerInfoOk &&
-    ((method === "cash" && cashCanPayValid) ||
+    ((method === "cash" && cashCanPayValidDiscounted) ||
       (method === "mobile_money" && mobileRefOk) ||
       (method === "card" && cardLastFourOk));
 
@@ -175,10 +268,13 @@ export default function PaymentModal({
     const summary = {
       method,
       methodLabel: paymentMethodLabel(method, locale),
-      totalUSD,
+      cartSubtotalUSD: totalUSD,
+      promotionDiscountUSD: discountUSD,
+      appliedPromotionId: promotionResult.appliedPromotionIds[0] ?? null,
+      totalUSD: payableUSD,
       totalCDF,
-      changeDueUSD: method === "cash" ? changeDueUSD : 0,
-      amountReceived: method === "cash" ? receivedUsd : totalUSD,
+      changeDueUSD: method === "cash" ? changeDueDiscounted : 0,
+      amountReceived: method === "cash" ? receivedUsd : payableUSD,
       reference: method === "mobile_money" ? reference.trim() : undefined,
       cardLastFour: method === "card" && cardLastFour ? cardLastFour.trim() : undefined,
       customerId: isWalkInClient ? undefined : customerId || undefined,
@@ -197,10 +293,13 @@ export default function PaymentModal({
     canValidate,
     method,
     locale,
-    totalUSD,
+    payableUSD,
     totalCDF,
-    changeDueUSD,
+    changeDueDiscounted,
     receivedUsd,
+    discountUSD,
+    promotionResult,
+    totalUSD,
     reference,
     cardLastFour,
     customerId,
@@ -211,6 +310,7 @@ export default function PaymentModal({
     customerEmail,
     isWalkInClient,
     shouldSaveCustomer,
+    customerForPromotions,
   ]);
 
   const handleFinish = useCallback(
@@ -244,23 +344,25 @@ export default function PaymentModal({
         return;
       }
 
-      if (e.key === "1") {
+      const inField = isEditableField(e.target);
+
+      if (!inField && e.key === "1") {
         e.preventDefault();
         switchMethod("cash");
         return;
       }
-      if (e.key === "2") {
+      if (!inField && e.key === "2") {
         e.preventDefault();
         switchMethod("mobile_money");
         return;
       }
-      if (e.key === "3") {
+      if (!inField && e.key === "3") {
         e.preventDefault();
         switchMethod("card");
         return;
       }
 
-      if (e.key === "Enter" && canValidate) {
+      if (!inField && e.key === "Enter" && canValidate) {
         e.preventDefault();
         handleComplete();
       }
@@ -375,13 +477,100 @@ export default function PaymentModal({
           </Box>
         ) : (
           <Box className="p-6 space-y-5">
-            <Box className="flex justify-between items-center">
-              <span className="text-gray-400">{t("payment.total")}</span>
-              <Box className="text-right">
-                <span className="text-2xl font-bold text-white block">{totalDual.primary}</span>
-                <span className="text-sm text-green-500 font-medium">≈ {totalDual.secondary}</span>
+            {discountUSD > 0 ? (
+              <Box className="space-y-2 rounded-lg border border-amber-900/50 bg-amber-950/20 p-3">
+                <Box className="flex justify-between text-sm text-gray-400">
+                  <span>{t("payment.subtotal")}</span>
+                  <span>{subtotalDual.primary}</span>
+                </Box>
+                <Box className="flex justify-between text-sm text-amber-400 font-medium gap-3">
+                  <Box className="min-w-0">
+                    <span>{t("payment.promotionDiscount")}</span>
+                    {appliedPromoNames.length > 0 ? (
+                      <p className="text-[10px] text-amber-500/80 truncate mt-0.5">
+                        {appliedPromoNames.join(" · ")}
+                      </p>
+                    ) : null}
+                  </Box>
+                  <span className="shrink-0">-{discountDual.primary}</span>
+                </Box>
+                <Box className="flex justify-between items-center border-t border-amber-900/40 pt-2">
+                  <span className="text-gray-300 font-bold">{t("payment.total")}</span>
+                  <Box className="text-right">
+                    <span className="text-2xl font-bold text-white block">{totalDual.primary}</span>
+                    <span className="text-sm text-green-500 font-medium">≈ {totalDual.secondary}</span>
+                  </Box>
+                </Box>
               </Box>
-            </Box>
+            ) : (
+              <Box className="flex justify-between items-center">
+                <span className="text-gray-400">{t("payment.total")}</span>
+                <Box className="text-right">
+                  <span className="text-2xl font-bold text-white block">{totalDual.primary}</span>
+                  <span className="text-sm text-green-500 font-medium">≈ {totalDual.secondary}</span>
+                </Box>
+              </Box>
+            )}
+
+            {tierQuickPickCustomers.length > 0 ? (
+              <Box className="rounded-lg border border-amber-700/50 bg-amber-950/25 p-3 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400">
+                  {t("payment.promoQuickPickTitle")}
+                </p>
+                <p className="text-xs text-amber-200/90">{t("payment.promoQuickPickHint")}</p>
+                <Box className="flex flex-wrap gap-2">
+                  {tierQuickPickCustomers.map((customer) => (
+                    <button
+                      key={customer.id}
+                      type="button"
+                      onClick={() => applyCustomer(customer)}
+                      className="px-3 py-2 rounded-lg border border-amber-600 bg-amber-950/40 text-left hover:bg-amber-900/50"
+                    >
+                      <span className="block text-xs font-bold text-amber-100">{customer.name}</span>
+                      <span className="block text-[10px] text-amber-400/90">
+                        {customer.clientTier}
+                      </span>
+                    </button>
+                  ))}
+                </Box>
+              </Box>
+            ) : null}
+
+            {promotionHint &&
+            (promotionHint.reason !== "tier" || tierQuickPickCustomers.length === 0) ? (
+              <Box className="rounded-lg border border-amber-900/40 bg-amber-950/15 px-3 py-2 text-xs text-amber-300/90">
+                {promotionHint.reason === "tier"
+                  ? t("payment.promoNeedsSavedClient", {
+                      name: promotionHint.promotion.name,
+                      tier: promotionHint.promotion.clientTier,
+                    })
+                  : promotionHint.reason === "not_live"
+                    ? t("payment.promoNotLive", { name: promotionHint.promotion.name })
+                    : promotionHint.reason === "min_order"
+                      ? t("payment.promoMinOrder", {
+                          name: promotionHint.promotion.name,
+                          amount: currency.formatPrimary(
+                            (() => {
+                              const minUsd = Number(promotionHint.promotion.minOrderAmount);
+                              const scope = promotionHint.promotion.targetScope;
+                              const basisUsd =
+                                scope === "specific_product" || scope === "specific_category"
+                                  ? promotionQualifyingSubtotalUsd(
+                                      promotionHint.promotion,
+                                      cart,
+                                      products
+                                    )
+                                  : totalUSD;
+                              return (
+                                Math.max(0, minUsd - basisUsd) ||
+                                minUsd
+                              );
+                            })()
+                          ),
+                        })
+                      : t("payment.promoNoProduct", { name: promotionHint.promotion.name })}
+              </Box>
+            ) : null}
 
             <Box className="space-y-3">
               <Box className="flex items-center justify-between">
@@ -417,6 +606,9 @@ export default function PaymentModal({
                   >
                     <span className="block text-xs font-semibold truncate">{customer.name}</span>
                     <span className="block text-[10px] text-gray-500 truncate">
+                      {customer.clientTier
+                        ? `${customer.clientTier} · `
+                        : ""}
                       {customer.phone || customer.taxNumber || t("payment.savedClient")}
                     </span>
                   </button>
@@ -529,7 +721,7 @@ export default function PaymentModal({
                   step={primary === CURRENCY.CDF ? "1" : "0.01"}
                   placeholder={primary === CURRENCY.CDF ? "0" : "0.00"}
                   className={`w-full bg-[#0a0a0a] border-2 rounded-lg p-4 text-3xl font-mono text-white outline-none transition-colors ${
-                    shortfall > EPSILON && amountReceived !== ""
+                    shortfallDiscounted > EPSILON && amountReceived !== ""
                       ? "border-red-600 focus:border-red-500"
                       : "border-gray-700 focus:border-blue-600"
                   }`}
@@ -543,7 +735,7 @@ export default function PaymentModal({
                   }}
                 />
                 <ChangeCalculator
-                  totalUSD={totalUSD}
+                  totalUSD={payableUSD}
                   exchangeRate={exchangeRate}
                   primaryCurrency={primary}
                   amountReceived={amountReceived}

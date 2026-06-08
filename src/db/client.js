@@ -1,11 +1,12 @@
+import { invoke } from "@tauri-apps/api/core";
 import { CREATE_TABLES_SQL, SCHEMA_VERSION } from "./schema";
 import { migrateInventoryBreakdown } from "./inventoryBreakdown";
+import { migratePromotionsSchema } from "./promotions";
 import { migrateTenantColumns } from "./tenant";
 import { dbExecute, dbSelect } from "./sqlParams";
 
-const DB_URI = "sqlite:sepela.db";
-
 let dbInstance = null;
+let dbUriPromise = null;
 
 /** Tauri 2 sets `globalThis.isTauri` — do not rely on __TAURI_INTERNALS__ alone. */
 export function isTauriRuntime() {
@@ -17,12 +18,26 @@ export function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+export async function resolveDatabaseUri() {
+  if (!isTauriRuntime()) return null;
+  if (!dbUriPromise) {
+    dbUriPromise = invoke("sepela_database_connection_uri");
+  }
+  return dbUriPromise;
+}
+
+export async function getDatabaseFilePath() {
+  if (!isTauriRuntime()) return null;
+  return invoke("sepela_database_file_path");
+}
+
 export async function getDatabase() {
   if (dbInstance) return dbInstance;
   if (!isTauriRuntime()) return null;
 
   const Database = (await import("@tauri-apps/plugin-sql")).default;
-  dbInstance = await Database.load(DB_URI);
+  const uri = await resolveDatabaseUri();
+  dbInstance = await Database.load(uri);
   return dbInstance;
 }
 
@@ -39,8 +54,9 @@ export async function runSchemaMigrations(db) {
   await ensureColumn(db, "customers", "address", "TEXT");
   await ensureColumn(db, "customers", "email", "TEXT");
   await ensureColumn(db, "customers", "tax_number", "TEXT");
-  await migrateTenantColumns(db, ensureColumn);
   await migrateInventoryBreakdown(db);
+  await migratePromotionsSchema(db, ensureColumn);
+  await migrateTenantColumns(db, ensureColumn);
   const ts = new Date().toISOString();
   await dbExecute(
     db,
@@ -52,6 +68,13 @@ export async function runSchemaMigrations(db) {
 }
 
 async function ensureColumn(db, table, column, definition) {
+  const exists = await dbSelect(
+    db,
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+    [table]
+  );
+  if (!exists.length) return;
+
   const rows = await dbSelect(db, `PRAGMA table_info(${table})`);
   if (rows.some((row) => row.name === column)) return;
   await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);

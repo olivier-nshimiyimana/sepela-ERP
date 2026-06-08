@@ -1,6 +1,6 @@
 {
   "name": "portal-api",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Sepela online admin portal API",
   "type": "module",
   "main": "dist/server.js",

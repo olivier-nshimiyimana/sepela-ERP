@@ -7,6 +7,7 @@ import {
   fetchMerchantBranchesOnCloud,
   fetchSalesReportOnCloud,
   getStoredOperatorSession,
+  hasOperatorSession,
 } from "../db/authCloud";
 import { aggregateSales, filterSalesByPeriod } from "../utils/reportPeriods";
 import { useLocale } from "../contexts/LocaleContext";
@@ -24,6 +25,11 @@ import {
 import { toSnapshotDateKey, toSnapshotMonthKey } from "../db/stockSnapshots";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { saleExchangeRate } from "../utils/currency";
+import {
+  saleAppliedPromotionName,
+  saleHasPromotionDiscount,
+  salePromotionDiscountUsd,
+} from "../utils/saleTotals";
 
 const Box = "d" + "iv";
 const PERIODS = ["daily", "weekly", "monthly"];
@@ -31,6 +37,7 @@ const PERIODS = ["daily", "weekly", "monthly"];
 export default function ReportsScreen({
   sales,
   products,
+  promotions = [],
   stockSnapshots = [],
   exchangeRate,
   expiryAlertDays,
@@ -39,6 +46,7 @@ export default function ReportsScreen({
   portalApiBaseUrl = "",
   portalApiToken = "",
   cloudConfigured = false,
+  authMode = "local",
 }) {
   const currency = useCurrency();
   const { t, tError, locale } = useLocale();
@@ -54,11 +62,18 @@ export default function ReportsScreen({
   const useCloudReports =
     user?.role === ROLES.BOSS && cloudConfigured && !!portalApiBaseUrl && !!portalApiToken;
 
+  const operatorSessionToken = getStoredOperatorSession();
+  const cloudSessionReady = authMode === "online" && hasOperatorSession();
+
   /** Owner reports must always scope to the signed-in merchant, not the device's last tenant. */
   const reportMerchantCode = user?.merchantCode?.trim() || merchantCode;
 
   useEffect(() => {
     if (!useCloudReports || !reportMerchantCode || reportMerchantCode === "local") {
+      setBranches([]);
+      return;
+    }
+    if (!cloudSessionReady) {
       setBranches([]);
       return;
     }
@@ -68,7 +83,7 @@ export default function ReportsScreen({
         const result = await fetchMerchantBranchesOnCloud(
           portalApiBaseUrl,
           { merchantCode: reportMerchantCode },
-          { apiToken: portalApiToken, sessionToken: getStoredOperatorSession() }
+          { apiToken: portalApiToken, sessionToken: operatorSessionToken }
         );
         if (!cancelled) {
           setBranches((result.branches ?? []).filter((branch) => branch.status === "ACTIVE"));
@@ -80,12 +95,25 @@ export default function ReportsScreen({
     return () => {
       cancelled = true;
     };
-  }, [useCloudReports, reportMerchantCode, portalApiBaseUrl, portalApiToken]);
+  }, [
+    useCloudReports,
+    cloudSessionReady,
+    reportMerchantCode,
+    portalApiBaseUrl,
+    portalApiToken,
+    operatorSessionToken,
+  ]);
 
   useEffect(() => {
     if (!useCloudReports || !reportMerchantCode || reportMerchantCode === "local") {
       setCloudReport(null);
       setReportError("");
+      return;
+    }
+    if (!cloudSessionReady) {
+      setCloudReport(null);
+      setReportLoading(false);
+      setReportError(t("reports.onlineSessionRequired"));
       return;
     }
     let cancelled = false;
@@ -100,7 +128,7 @@ export default function ReportsScreen({
             branchCode: selectedBranchCode || undefined,
             period,
           },
-          { apiToken: portalApiToken, sessionToken: getStoredOperatorSession() }
+          { apiToken: portalApiToken, sessionToken: operatorSessionToken }
         );
         if (!cancelled) {
           setCloudReport(result);
@@ -108,7 +136,14 @@ export default function ReportsScreen({
       } catch (error) {
         if (!cancelled) {
           setCloudReport(null);
-          setReportError(error?.message ?? t("reports.loadError"));
+          const message = String(error?.message ?? "");
+          if (error?.status === 401 && /bearer token/i.test(message)) {
+            setReportError(t("reports.invalidApiToken"));
+          } else if (error?.status === 401) {
+            setReportError(t("reports.onlineSessionRequired"));
+          } else {
+            setReportError(message || t("reports.loadError"));
+          }
         }
       } finally {
         if (!cancelled) setReportLoading(false);
@@ -117,7 +152,18 @@ export default function ReportsScreen({
     return () => {
       cancelled = true;
     };
-  }, [useCloudReports, reportMerchantCode, portalApiBaseUrl, portalApiToken, selectedBranchCode, period]);
+  }, [
+    useCloudReports,
+    cloudSessionReady,
+    authMode,
+    reportMerchantCode,
+    portalApiBaseUrl,
+    portalApiToken,
+    operatorSessionToken,
+    selectedBranchCode,
+    period,
+    t,
+  ]);
 
   const tenantMismatch =
     !!user?.merchantCode &&
@@ -130,10 +176,30 @@ export default function ReportsScreen({
     [sales, period]
   );
   const localStats = useMemo(() => aggregateSales(filtered), [filtered]);
-  const emptyStats = { count: 0, totalUSD: 0, totalCDF: 0, byMethod: {}, topProducts: [] };
+  const emptyStats = {
+    count: 0,
+    totalUSD: 0,
+    totalCDF: 0,
+    totalPromotionDiscountUSD: 0,
+    byMethod: {},
+    topProducts: [],
+  };
   const useCloudOnly = useCloudReports || tenantMismatch;
-  const stats = cloudReport?.stats ?? (useCloudOnly ? emptyStats : localStats);
-  const recentSales = cloudReport?.recentSales ?? (useCloudOnly ? [] : filtered.slice(0, 50));
+  const cloudLoadedEmpty =
+    useCloudReports &&
+    cloudSessionReady &&
+    !reportLoading &&
+    !reportError &&
+    cloudReport &&
+    (cloudReport.stats?.count ?? 0) === 0;
+  const preferLocalFallback =
+    useCloudReports && !tenantMismatch && (!!reportError || !cloudSessionReady);
+  const stats =
+    cloudReport?.stats ??
+    (useCloudOnly && !preferLocalFallback ? emptyStats : localStats);
+  const recentSales =
+    cloudReport?.recentSales ??
+    (useCloudOnly && !preferLocalFallback ? [] : filtered.slice(0, 50));
   const branchBreakdown = cloudReport?.byBranch ?? [];
   const dailySummary = useMemo(
     () =>
@@ -258,14 +324,20 @@ export default function ReportsScreen({
       {reportError ? (
         <p className="text-sm text-amber-400 border border-amber-900/40 bg-amber-950/20 rounded-lg px-4 py-3">
           {tError(reportError)}
-          {t("reports.showingDeviceOnly")}
+          {preferLocalFallback ? t("reports.showingDeviceOnly") : null}
+        </p>
+      ) : null}
+      {cloudLoadedEmpty ? (
+        <p className="text-sm text-gray-400 border border-gray-800 bg-[#161616] rounded-lg px-4 py-3">
+          {t("reports.cloudEmpty")}
+          {localStats.count > 0 ? ` ${t("reports.cloudEmptyLocalHint")}` : ""}
         </p>
       ) : null}
       {reportLoading && useCloudReports ? (
         <p className="text-sm text-gray-500">{t("reports.loadingCloud")}</p>
       ) : null}
 
-      <Box className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <Box className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label={t("reports.transactions")} value={stats.count.toString()} />
         <StatCard
           label={t("reports.revenue", { currency: currency.primaryCurrency })}
@@ -276,6 +348,11 @@ export default function ReportsScreen({
           label={t("reports.revenueSecondary", { currency: currency.secondaryCurrency })}
           value={currency.formatSecondary(stats.totalUSD)}
           accent="text-blue-400"
+        />
+        <StatCard
+          label={t("reports.promotionDiscounts", { currency: currency.primaryCurrency })}
+          value={currency.formatPrimary(stats.totalPromotionDiscountUSD ?? 0)}
+          accent="text-emerald-400"
         />
       </Box>
 
@@ -522,11 +599,15 @@ export default function ReportsScreen({
                   {useCloudReports ? <th className="p-3">{t("reports.branch")}</th> : null}
                   <th className="p-3">{t("invoices.columnCashier")}</th>
                   <th className="p-3">{t("common.method")}</th>
+                  <th className="p-3">{t("reports.columnPromotion")}</th>
                   <th className="p-3 text-right">{currency.primaryCurrency}</th>
                 </tr>
               </thead>
               <tbody>
-                {recentSales.map((sale) => (
+                {recentSales.map((sale) => {
+                  const promoDiscount = salePromotionDiscountUsd(sale);
+                  const promoName = saleAppliedPromotionName(sale, promotions);
+                  return (
                   <tr key={`${sale.branchCode ?? "local"}-${sale.id}`} className="border-b border-gray-900">
                     <td className="p-3 font-mono text-xs text-cyan-500 whitespace-nowrap">
                       {sale.invoiceNumber ?? "—"}
@@ -542,11 +623,28 @@ export default function ReportsScreen({
                     ) : null}
                     <td className="p-3">{sale.cashierName}</td>
                     <td className="p-3">{sale.methodLabel ?? paymentMethodLabel(sale.method, locale)}</td>
+                    <td className="p-3 text-xs">
+                      {saleHasPromotionDiscount(sale) ? (
+                        <Box>
+                          <span className="block text-emerald-400 font-bold">
+                            -{currency.formatPrimary(promoDiscount, saleExchangeRate(sale))}
+                          </span>
+                          {promoName ? (
+                            <span className="block text-[10px] text-gray-500 truncate max-w-[120px]">
+                              {promoName}
+                            </span>
+                          ) : null}
+                        </Box>
+                      ) : (
+                        <span className="text-gray-600">—</span>
+                      )}
+                    </td>
                     <td className="p-3 text-right font-bold">
                       {currency.formatPrimary(sale.totalUSD, saleExchangeRate(sale))}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </Box>

@@ -26,6 +26,7 @@ function fieldsFromClient(initial) {
     taxNumber: initial?.taxNumber ?? "",
     address: initial?.address ?? "",
     email: initial?.email ?? "",
+    clientTier: initial?.clientTier ?? "",
   };
 }
 
@@ -84,6 +85,13 @@ function ClientForm({ initial, onSave, onCancel, saveLabel }) {
         placeholder={t("common.email")}
         value={fields.email}
         onChange={set("email")}
+        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none"
+      />
+      <input
+        type="text"
+        placeholder={t("clients.clientTier")}
+        value={fields.clientTier}
+        onChange={set("clientTier")}
         className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none"
       />
       {error && <p className="text-red-400 text-xs">{tError(error)}</p>}

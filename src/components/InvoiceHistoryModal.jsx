@@ -5,6 +5,11 @@ import { useCurrency } from "../contexts/CurrencyContext";
 import { useLocale } from "../contexts/LocaleContext";
 import { saleExchangeRate } from "../utils/currency";
 import { startOfDay, startOfMonth, startOfWeek } from "../utils/reportPeriods";
+import {
+  saleAppliedPromotionName,
+  saleHasPromotionDiscount,
+  salePromotionDiscountUsd,
+} from "../utils/saleTotals";
 
 const Box = "d" + "iv";
 
@@ -72,6 +77,7 @@ export default function InvoiceHistoryModal({
   isOpen,
   onClose,
   sales,
+  promotions = [],
   user,
   onViewInvoice,
   onRefund,
@@ -255,12 +261,16 @@ export default function InvoiceHistoryModal({
                   <th className="p-2">{t("invoices.columnInvoice")}</th>
                   <th className="p-2">{t("invoices.columnWhen")}</th>
                   <th className="p-2">{t("invoices.columnCashier")}</th>
+                  <th className="p-2">{t("invoices.columnPromotion")}</th>
                   <th className="p-2 text-right">{currency.primaryCurrency}</th>
                   <th className="p-2 w-36" />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((sale) => (
+                {filtered.map((sale) => {
+                  const promoDiscount = salePromotionDiscountUsd(sale);
+                  const promoName = saleAppliedPromotionName(sale, promotions);
+                  return (
                   <tr key={sale.id} className="border-b border-gray-900 hover:bg-[#252525]">
                     <td className="p-2 font-mono font-bold text-cyan-400">
                       {sale.invoiceNumber ?? `— ${sale.id.slice(-6)}`}
@@ -269,6 +279,22 @@ export default function InvoiceHistoryModal({
                       {new Date(sale.timestamp).toLocaleString()}
                     </td>
                     <td className="p-2 text-xs">{sale.cashierName}</td>
+                    <td className="p-2 text-xs">
+                      {saleHasPromotionDiscount(sale) ? (
+                        <Box>
+                          <span className="block text-emerald-400 font-bold">
+                            -{currency.formatPrimary(promoDiscount, saleExchangeRate(sale))}
+                          </span>
+                          {promoName ? (
+                            <span className="block text-[10px] text-gray-500 truncate max-w-[140px]">
+                              {promoName}
+                            </span>
+                          ) : null}
+                        </Box>
+                      ) : (
+                        <span className="text-gray-600">—</span>
+                      )}
+                    </td>
                     <td className="p-2 text-right font-bold">
                       {currency.formatPrimary(sale.totalUSD ?? 0, saleExchangeRate(sale))}
                     </td>
@@ -296,7 +322,8 @@ export default function InvoiceHistoryModal({
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}

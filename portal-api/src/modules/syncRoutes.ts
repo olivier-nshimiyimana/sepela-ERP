@@ -12,6 +12,8 @@ const syncTablesSchema = z.object({
   purchases: z.array(z.record(z.string(), z.unknown())).default([]),
   settings: z.array(z.record(z.string(), z.unknown())).default([]),
   stockSnapshots: z.array(z.record(z.string(), z.unknown())).default([]),
+  productCategories: z.array(z.record(z.string(), z.unknown())).default([]),
+  promotions: z.array(z.record(z.string(), z.unknown())).default([]),
 });
 
 const syncPushSchema = z.object({
@@ -203,6 +205,34 @@ export const syncRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
+      for (const row of body.tables.productCategories) {
+        await upsertByUpdatedAt(client, {
+          table: "sync_product_categories",
+          keyColumn: "id",
+          keyValue: readKey(row, "id"),
+          payload: row,
+          merchantCode: body.merchantCode,
+          branchCode: body.branchCode,
+          deviceCode: body.deviceId,
+          syncedBucket: synced.productCategories,
+          failedBucket: failed.productCategories,
+        });
+      }
+
+      for (const row of body.tables.promotions) {
+        await upsertByUpdatedAt(client, {
+          table: "sync_promotions",
+          keyColumn: "id",
+          keyValue: readKey(row, "id"),
+          payload: row,
+          merchantCode: body.merchantCode,
+          branchCode: body.branchCode,
+          deviceCode: body.deviceId,
+          syncedBucket: synced.promotions,
+          failedBucket: failed.promotions,
+        });
+      }
+
       await client.query(
         `INSERT INTO sync_ingestions (device_code, source, sent_at, request_json, result_json)
          VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
@@ -330,6 +360,8 @@ function emptySyncResult() {
     purchases: [] as string[],
     settings: [] as string[],
     stockSnapshots: [] as string[],
+    productCategories: [] as string[],
+    promotions: [] as string[],
   };
 }
 

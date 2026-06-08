@@ -1,3 +1,5 @@
+import { salePromotionDiscountUsd } from "./saleTotals";
+
 export function startOfDay(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -44,11 +46,13 @@ export function aggregateSales(sales) {
 
   let totalUSD = 0;
   let totalCDF = 0;
+  let totalPromotionDiscountUSD = 0;
 
   for (const sale of sales) {
     if (sale.status === "refunded") continue;
     totalUSD += sale.totalUSD ?? 0;
     totalCDF += sale.totalCDF ?? 0;
+    totalPromotionDiscountUSD += salePromotionDiscountUsd(sale);
 
     const method = sale.methodLabel ?? sale.method ?? "Unknown";
     byMethod[method] = (byMethod[method] ?? 0) + (sale.totalUSD ?? 0);
@@ -68,6 +72,7 @@ export function aggregateSales(sales) {
     count: sales.filter((s) => s.status !== "refunded").length,
     totalUSD,
     totalCDF,
+    totalPromotionDiscountUSD,
     byMethod,
     topProducts,
   };

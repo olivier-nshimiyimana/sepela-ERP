@@ -6,6 +6,7 @@ export function normalizeCustomerFields(fields = {}) {
   const addressRaw = String(fields.address ?? "").trim();
   const emailRaw = String(fields.email ?? "").trim();
   const taxNumberRaw = String(fields.taxNumber ?? "").trim();
+  const clientTierRaw = String(fields.clientTier ?? fields.client_tier ?? "").trim();
   return {
     id: fields.id ?? null,
     name,
@@ -13,6 +14,7 @@ export function normalizeCustomerFields(fields = {}) {
     address: addressRaw || null,
     email: emailRaw || null,
     taxNumber: taxNumberRaw || null,
+    clientTier: clientTierRaw || null,
   };
 }
 

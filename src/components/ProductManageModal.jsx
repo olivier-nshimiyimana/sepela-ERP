@@ -20,6 +20,7 @@ function emptyProductFields() {
     expirationDate: "",
     price: "",
     stock: "",
+    categoryId: "",
     buyUnit: "",
     buyUnitCost: "",
     qtyPerUnit: "",
@@ -36,6 +37,7 @@ function fieldsFromProduct(initial, currency) {
     expirationDate: initial.expirationDate ?? "",
     price: currency.usdToInput(initial.price),
     stock: (initial.stockQuantityItems ?? initial.stock)?.toString() ?? "",
+    categoryId: initial.categoryId ?? "",
     buyUnit: initial.buyUnit ?? "",
     buyUnitCost: initial.buyUnitCost ? currency.usdToInput(initial.buyUnitCost) : "",
     qtyPerUnit: initial.qtyPerUnit?.toString() ?? "",
@@ -80,7 +82,7 @@ function formatPurchaseTime(value, t) {
   return date.toLocaleString();
 }
 
-function ProductForm({ initial, onSave, onCancel, saveLabel }) {
+function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLabel }) {
   const currency = useCurrency();
   const { t, tError } = useLocale();
   const [fields, setFields] = useState(() => fieldsFromProduct(initial, currency));
@@ -142,6 +144,18 @@ function ProductForm({ initial, onSave, onCancel, saveLabel }) {
         onChange={set("price")}
         className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
       />
+      <select
+        value={fields.categoryId}
+        onChange={set("categoryId")}
+        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+      >
+        <option value="">{t("products.noCategory")}</option>
+        {productCategories.map((category) => (
+          <option key={category.id} value={category.id}>
+            {category.name} ({category.code})
+          </option>
+        ))}
+      </select>
       <Box className="grid grid-cols-2 gap-2">
         <input
           type="text"
@@ -224,6 +238,7 @@ function ProductForm({ initial, onSave, onCancel, saveLabel }) {
 export default function ProductManageModal({
   isOpen,
   products,
+  productCategories = [],
   suppliers = [],
   purchases = [],
   expiryAlertDays,
@@ -247,6 +262,10 @@ export default function ProductManageModal({
   const [restockExpiry, setRestockExpiry] = useState("");
   const [importMessage, setImportMessage] = useState("");
   const [importMessageSuccess, setImportMessageSuccess] = useState(false);
+  const categoryById = useMemo(
+    () => new Map(productCategories.map((category) => [category.id, category])),
+    [productCategories]
+  );
   const [purchaseMessage, setPurchaseMessage] = useState("");
   const [purchaseMessageSuccess, setPurchaseMessageSuccess] = useState(false);
   const [addProductMessage, setAddProductMessage] = useState("");
@@ -745,6 +764,7 @@ export default function ProductManageModal({
               {showAddForm && (
                 <ProductForm
                   key={addFormKey}
+                  productCategories={productCategories}
                   saveLabel={t("products.newProduct")}
                   onSave={async (fields) => {
                     const result = await Promise.resolve(onAdd(fields));
@@ -767,6 +787,7 @@ export default function ProductManageModal({
               {editingId && editingProduct && (
                 <ProductForm
                   key={editingId}
+                  productCategories={productCategories}
                   initial={editingProduct}
                   saveLabel={t("products.editProduct")}
                   onSave={(fields) => {
@@ -866,6 +887,11 @@ export default function ProductManageModal({
                         <Box className="flex items-start justify-between gap-2">
                           <Box className="min-w-0 flex-1">
                             <p className="font-medium text-gray-200">{product.name}</p>
+                            {product.categoryId && categoryById.get(product.categoryId) ? (
+                              <p className="text-[10px] text-amber-500/90 mt-0.5">
+                                {categoryById.get(product.categoryId).name}
+                              </p>
+                            ) : null}
                             <p className="text-[10px] font-mono text-gray-500 mt-0.5">
                               {t("pos.lot")} {product.lotNumber}
                             </p>

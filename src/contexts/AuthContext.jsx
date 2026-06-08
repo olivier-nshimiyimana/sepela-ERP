@@ -6,6 +6,7 @@ import {
 } from "../db/authCloud";
 import {
   ACTIVATION_SUPPORT_MESSAGE,
+  DEVICE_MERCHANT_MISMATCH_MESSAGE,
   TERMINAL_NOT_CONFIGURED_MESSAGE,
   resolvePortalConnection,
 } from "../config/portalDefaults";
@@ -110,6 +111,17 @@ export function AuthProvider({ children }) {
     cloudSync.leaseToken,
   ]);
 
+  const assertDeviceAllowsOperator = useCallback(
+    async (account) => {
+      if (!db?.getDeviceActivation) return { ok: true };
+      const activation = await db.getDeviceActivation();
+      if (!activation.leaseToken || !activation.merchantCode) return { ok: true };
+      if (activation.merchantCode === account.merchantCode) return { ok: true };
+      return { ok: false, error: DEVICE_MERCHANT_MISMATCH_MESSAGE };
+    },
+    [db]
+  );
+
   const loginOfflineWithCache = useCallback(
     async (username, password) => {
       const account = await findCachedOperatorForLogin(username, password);
@@ -120,6 +132,8 @@ export function AuthProvider({ children }) {
             "Cannot reach the portal and no matching cached account was found. Sign in once while online, then you can work offline.",
         };
       }
+      const deviceCheck = await assertDeviceAllowsOperator(account);
+      if (!deviceCheck.ok) return deviceCheck;
       if (db?.applyActiveTenant) {
         await db.applyActiveTenant({
           merchantCode: account.merchantCode,
@@ -132,6 +146,7 @@ export function AuthProvider({ children }) {
         displayName: account.displayName,
         role: account.role,
         merchantCode: account.merchantCode,
+        branchCode: account.branchCode ?? "",
       };
       persistSession(session, null, null);
       setUser(session);
@@ -140,16 +155,16 @@ export function AuthProvider({ children }) {
       setLastAuthMessage("Signed in offline using cached credentials.");
       return { ok: true, mode: "offline" };
     },
-    [db]
+    [db, assertDeviceAllowsOperator]
   );
 
   useEffect(() => {
     if (!db?.ready || !db?.applyActiveTenant || !user?.merchantCode) return;
     db.applyActiveTenant({
       merchantCode: user.merchantCode,
-      branchCode: cloudSync.branchCode,
+      branchCode: user.branchCode ?? cloudSync.branchCode,
     }).catch(() => {});
-  }, [db?.ready, db?.applyActiveTenant, user?.merchantCode, cloudSync.branchCode]);
+  }, [db?.ready, db?.applyActiveTenant, user?.merchantCode, user?.branchCode, cloudSync.branchCode]);
 
   const login = useCallback(
     async (username, password) => {
@@ -179,6 +194,13 @@ export function AuthProvider({ children }) {
         const account = accountFromCloudLogin(result);
         const sessionMerchant = account.merchantCode;
 
+        const deviceCheck = await assertDeviceAllowsOperator(account);
+        if (!deviceCheck.ok) return deviceCheck;
+
+        if (binding?.merchant?.code && binding.merchant.code !== sessionMerchant) {
+          return { ok: false, error: DEVICE_MERCHANT_MISMATCH_MESSAGE };
+        }
+
         if (db?.applyActiveTenant) {
           await db.applyActiveTenant({
             merchantCode: sessionMerchant,
@@ -190,6 +212,7 @@ export function AuthProvider({ children }) {
           const synced = await db.syncDeviceBindingFromPortal(binding, {
             apiBaseUrl: portal.apiBaseUrl,
             apiToken: portal.apiToken,
+            operatorMerchantCode: sessionMerchant,
           });
           if (!synced?.ok) {
             return { ok: false, error: ACTIVATION_SUPPORT_MESSAGE };
@@ -226,6 +249,7 @@ export function AuthProvider({ children }) {
           displayName: account.displayName,
           role: account.role,
           merchantCode: account.merchantCode,
+          branchCode: account.branchCode ?? "",
         };
         persistSession(session, result.sessionToken, result.sessionExpiresAt);
         setUser(session);
@@ -270,7 +294,7 @@ export function AuthProvider({ children }) {
         return { ok: false, error: offline.error };
       }
     },
-    [portal, db, loginOfflineWithCache]
+    [portal, db, loginOfflineWithCache, assertDeviceAllowsOperator]
   );
 
   const logout = useCallback(() => {

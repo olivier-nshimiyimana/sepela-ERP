@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { pool } from "./db.js";
 import { migrateInventoryBreakdown } from "./migrations/inventoryBreakdown.js";
 import { migrateOperatorUsernameGlobal } from "./migrations/operatorUsernameGlobal.js";
+import { migratePromotions } from "./migrations/promotions.js";
 import { bootstrapSql } from "./schema.js";
 import { managementRoutes } from "./modules/managementRoutes.js";
 import { reportRoutes } from "./modules/reportRoutes.js";
@@ -106,6 +107,7 @@ async function start() {
   await pool.query(bootstrapSql);
   await migrateInventoryBreakdown(pool);
   await migrateOperatorUsernameGlobal(pool);
+  await migratePromotions(pool);
   await app.listen({
     port: config.PORT,
     host: config.HOST,
