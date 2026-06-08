@@ -16,6 +16,16 @@ export default defineConfig(async () => ({
     port: 1420,
     strictPort: true,
     host: host || false,
+    // Browser dev (`npm run dev`): proxy cloud API to avoid CORS against Render.
+    proxy: {
+      "/portal-api": {
+        target:
+          process.env.VITE_PORTAL_API_URL || "https://sepela-erp-api.onrender.com",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/portal-api/, ""),
+      },
+    },
     hmr: host
       ? {
           protocol: "ws",

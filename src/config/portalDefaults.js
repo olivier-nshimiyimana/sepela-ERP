@@ -4,8 +4,22 @@ export const PRODUCTION_PORTAL_API_URL = "https://sepela-erp-api.onrender.com";
 /** Portal admin UI (merchants, devices, operators). */
 export const PRODUCTION_PORTAL_ADMIN_URL = "https://sepela-erp-portal-admin.onrender.com";
 
-export const DEFAULT_PORTAL_API_URL =
-  String(import.meta.env.VITE_PORTAL_API_URL ?? "").trim() || PRODUCTION_PORTAL_API_URL;
+function isBrowserDev() {
+  try {
+    return import.meta.env.DEV && globalThis.isTauri !== true;
+  } catch {
+    return false;
+  }
+}
+
+/** In browser dev, use Vite proxy (`/portal-api`) to avoid CORS. Tauri uses the real URL. */
+export const DEFAULT_PORTAL_API_URL = (() => {
+  const fromEnv = String(import.meta.env.VITE_PORTAL_API_URL ?? "").trim();
+  if (isBrowserDev() && (!fromEnv || fromEnv === PRODUCTION_PORTAL_API_URL)) {
+    return "/portal-api";
+  }
+  return fromEnv || PRODUCTION_PORTAL_API_URL;
+})();
 
 export const DEFAULT_PORTAL_API_TOKEN = String(import.meta.env.VITE_PORTAL_API_TOKEN ?? "").trim();
 
@@ -22,9 +36,18 @@ export function normalizePortalApiBaseUrl(url) {
     .replace(/\/api$/i, "");
 }
 
+function portalApiUrlForRuntime(url) {
+  const normalized = normalizePortalApiBaseUrl(url);
+  if (isBrowserDev() && normalized === PRODUCTION_PORTAL_API_URL) {
+    return "/portal-api";
+  }
+  return normalized;
+}
+
 export function resolvePortalConnection(cloudSync = {}) {
   const apiBaseUrl =
-    normalizePortalApiBaseUrl(cloudSync.apiBaseUrl) || normalizePortalApiBaseUrl(DEFAULT_PORTAL_API_URL);
+    portalApiUrlForRuntime(cloudSync.apiBaseUrl) ||
+    portalApiUrlForRuntime(DEFAULT_PORTAL_API_URL);
   const apiToken = String(cloudSync.apiToken ?? "").trim() || DEFAULT_PORTAL_API_TOKEN;
   return { apiBaseUrl, apiToken, configured: !!(apiBaseUrl && apiToken) };
 }

@@ -112,9 +112,12 @@ Operators can still override API URL/token in **Settings → Cloud sync** after 
 
 This usually means the **desktop app could not complete `/auth/login`** (often CORS), then fell back to offline cache which is **empty on first install**.
 
-1. **Redeploy portal-api** on Render after pulling the latest code (desktop origins `http(s)://tauri.localhost` are allowed in `portal-api/src/server.ts`).
+1. **Redeploy portal-api** on Render after pulling the latest code. `portal-api/src/server.ts` auto-allows:
+   - Browser dev: `http://localhost:*` and `http://127.0.0.1:*` (Vite at `:1420`, portal-admin at `:5173`)
+   - Desktop: `http(s)://tauri.localhost`, `tauri://localhost`, `asset.localhost`
 2. On Render, set `CORS_ORIGINS` to include at least:
-   `https://sepela-erp-portal-admin.onrender.com,http://tauri.localhost,https://tauri.localhost,tauri://localhost`
+   `https://sepela-erp-portal-admin.onrender.com`
+   (localhost ports are pattern-matched; explicit entries are optional.)
 3. Create the operator in **portal-admin** and use that username/password on first **online** login.
 4. Confirm the installer was built with `VITE_PORTAL_API_TOKEN` matching Render `PORTAL_BEARER_TOKEN`.
 

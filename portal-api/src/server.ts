@@ -29,6 +29,12 @@ app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, b
   }
 });
 
+/** Vite / browser dev (`npm run dev` at localhost:1420, portal-admin at :5173, etc.). */
+const LOCAL_DEV_ORIGIN_PATTERNS = [
+  /^https?:\/\/localhost(?::\d+)?$/i,
+  /^https?:\/\/127\.0\.0\.1(?::\d+)?$/i,
+];
+
 /** Sepela ERP desktop (Tauri WebView2) origins — not browser tabs. */
 const DESKTOP_ORIGIN_PATTERNS = [
   /^https?:\/\/tauri\.localhost(?::\d+)?$/i,
@@ -39,6 +45,7 @@ const DESKTOP_ORIGIN_PATTERNS = [
 function isAllowedCorsOrigin(origin: string | undefined) {
   if (!origin) return true;
   if (config.corsOrigins.includes(origin)) return true;
+  if (LOCAL_DEV_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin))) return true;
   return DESKTOP_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin));
 }
 

@@ -54,15 +54,16 @@ export function AuthProvider({ children }) {
   const db = useDatabase();
   const cloudSync = db?.cloudSync ?? {};
   const portal = resolvePortalConnection(cloudSync);
-  const merchantCode =
-    String(user?.merchantCode ?? db?.activeTenant?.merchantCode ?? cloudSync.merchantCode ?? "").trim() ||
-    "local";
 
   const [user, setUser] = useState(loadSession);
   const [operators, setOperators] = useState([]);
   const [ready, setReady] = useState(false);
   const [authMode, setAuthMode] = useState("local");
   const [lastAuthMessage, setLastAuthMessage] = useState("");
+
+  const merchantCode =
+    String(user?.merchantCode ?? db?.activeTenant?.merchantCode ?? cloudSync.merchantCode ?? "").trim() ||
+    "local";
 
   const refreshOperators = useCallback(async () => {
     const accounts = await loadOperatorAccounts(merchantCode);
