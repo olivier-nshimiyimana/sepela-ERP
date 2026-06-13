@@ -13,7 +13,9 @@ const branchesQuery = z.object({
 const salesSummaryQuery = z.object({
   merchantCode: z.string().min(2).max(40),
   branchCode: z.string().min(2).max(40).optional(),
-  period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
+  period: z.enum(["daily", "weekly", "monthly"]).optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 type OperatorSessionRow = {
@@ -70,6 +72,30 @@ function periodStart(period: "daily" | "weekly" | "monthly") {
   return start;
 }
 
+function parseDateOnly(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("BAD_REQUEST: Invalid date.");
+  }
+  return date;
+}
+
+function resolveReportRange(query: z.infer<typeof salesSummaryQuery>) {
+  if (query.dateFrom && query.dateTo) {
+    const from = parseDateOnly(query.dateFrom);
+    const to = parseDateOnly(query.dateTo);
+    to.setHours(23, 59, 59, 999);
+    if (from.getTime() > to.getTime()) {
+      throw new Error("BAD_REQUEST: dateFrom must be before dateTo.");
+    }
+    return { from, to };
+  }
+  const from = periodStart(query.period ?? "daily");
+  const to = new Date();
+  to.setHours(23, 59, 59, 999);
+  return { from, to };
+}
+
 function mapSaleFromPayload(payload: Record<string, unknown>, branchCode: string, deviceCode: string) {
   const items = Array.isArray(payload.items) ? payload.items : [];
   return {
@@ -96,9 +122,19 @@ function mapSaleFromPayload(payload: Record<string, unknown>, branchCode: string
   };
 }
 
+function roundUsd(amount: number) {
+  const n = Number(amount) || 0;
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function roundCdf(amount: number) {
+  const n = Number(amount) || 0;
+  return Math.round(n);
+}
+
 function aggregateSalesRows(sales: ReturnType<typeof mapSaleFromPayload>[]) {
   const byMethod: Record<string, number> = {};
-  const productCounts: Record<string, number> = {};
+  const productCounts: Record<string, { name: string; qty: number; revenueUSD: number }> = {};
   let totalUSD = 0;
   let totalCDF = 0;
   let count = 0;
@@ -111,16 +147,73 @@ function aggregateSalesRows(sales: ReturnType<typeof mapSaleFromPayload>[]) {
     const method = String(sale.methodLabel ?? sale.method ?? "Unknown");
     byMethod[method] = (byMethod[method] ?? 0) + sale.totalUSD;
     for (const item of sale.items) {
-      productCounts[item.name] = (productCounts[item.name] ?? 0) + item.qty;
+      const name = String(item.name ?? "").trim() || "—";
+      if (!productCounts[name]) {
+        productCounts[name] = { name, qty: 0, revenueUSD: 0 };
+      }
+      productCounts[name].qty += item.qty;
+      productCounts[name].revenueUSD += item.qty * item.price;
     }
   }
 
-  const topProducts = Object.entries(productCounts)
-    .map(([name, qty]) => ({ name, qty }))
-    .sort((a, b) => b.qty - a.qty)
-    .slice(0, 5);
+  const topProducts = Object.values(productCounts)
+    .map((row) => ({ ...row, revenueUSD: roundUsd(row.revenueUSD) }))
+    .sort((a, b) => b.qty - a.qty || b.revenueUSD - a.revenueUSD)
+    .slice(0, 8);
 
-  return { count, totalUSD, totalCDF, byMethod, topProducts };
+  const roundedByMethod: Record<string, number> = {};
+  for (const [method, usd] of Object.entries(byMethod)) {
+    roundedByMethod[method] = roundUsd(usd);
+  }
+
+  return {
+    count,
+    totalUSD: roundUsd(totalUSD),
+    totalCDF: roundCdf(totalCDF),
+    byMethod: roundedByMethod,
+    topProducts,
+  };
+}
+
+function buildMonthlySeries(sales: ReturnType<typeof mapSaleFromPayload>[], year: number) {
+  const buckets = Array.from({ length: 12 }, (_, month) => ({
+    month,
+    label: new Date(year, month, 1).toLocaleString("en-US", { month: "short" }).toUpperCase(),
+    totalUSD: 0,
+    count: 0,
+  }));
+  for (const sale of sales) {
+    if (sale.status === "refunded" || !sale.timestamp) continue;
+    const ts = new Date(String(sale.timestamp));
+    if (Number.isNaN(ts.getTime()) || ts.getFullYear() !== year) continue;
+    const bucket = buckets[ts.getMonth()];
+    bucket.totalUSD += sale.totalUSD;
+    bucket.count += 1;
+  }
+  return buckets.map((bucket) => ({ ...bucket, totalUSD: roundUsd(bucket.totalUSD) }));
+}
+
+function buildHourlySeries(sales: ReturnType<typeof mapSaleFromPayload>[]) {
+  const buckets = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    label: `${String(hour).padStart(2, "0")}:00`,
+    totalUSD: 0,
+    count: 0,
+  }));
+  for (const sale of sales) {
+    if (sale.status === "refunded" || !sale.timestamp) continue;
+    const ts = new Date(String(sale.timestamp));
+    if (Number.isNaN(ts.getTime())) continue;
+    const bucket = buckets[ts.getHours()];
+    bucket.totalUSD += sale.totalUSD;
+    bucket.count += 1;
+  }
+  return buckets.map((bucket) => ({ ...bucket, totalUSD: roundUsd(bucket.totalUSD) }));
+}
+
+function findTopMonth(monthlySeries: ReturnType<typeof buildMonthlySeries>) {
+  if (!monthlySeries.length) return null;
+  return monthlySeries.reduce((best, row) => (row.totalUSD > (best?.totalUSD ?? 0) ? row : best), monthlySeries[0]);
 }
 
 export const reportRoutes: FastifyPluginAsync = async (app) => {
@@ -168,7 +261,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
     assertPortalToken(request);
     const query = salesSummaryQuery.parse(request.query);
     const sessionToken = readSessionToken(request);
-    const from = periodStart(query.period);
+    const { from, to } = resolveReportRange(query);
 
     const result = await withTransaction(async (client) => {
       const operator = await loadOperatorSession(client, sessionToken);
@@ -212,9 +305,29 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
         .filter((sale) => {
           if (!sale.timestamp) return false;
           const ts = new Date(String(sale.timestamp));
-          return !Number.isNaN(ts.getTime()) && ts.getTime() >= from.getTime();
+          return !Number.isNaN(ts.getTime()) && ts.getTime() >= from.getTime() && ts.getTime() <= to.getTime();
         })
         .sort((a, b) => new Date(String(b.timestamp)).getTime() - new Date(String(a.timestamp)).getTime());
+
+      const year = new Date().getFullYear();
+      const yearStart = new Date(year, 0, 1);
+      const yearSales = rows.rows
+        .map((row) =>
+          mapSaleFromPayload(
+            (row.payload ?? {}) as Record<string, unknown>,
+            row.branch_code,
+            row.device_code
+          )
+        )
+        .filter((sale) => {
+          if (!sale.timestamp || sale.status === "refunded") return false;
+          const ts = new Date(String(sale.timestamp));
+          return !Number.isNaN(ts.getTime()) && ts.getTime() >= yearStart.getTime();
+        });
+
+      const monthlySeries = buildMonthlySeries(yearSales, year);
+      const hourlySeries = buildHourlySeries(sales);
+      const stats = aggregateSalesRows(sales);
 
       const byBranch: Record<string, { branchCode: string; count: number; totalUSD: number; totalCDF: number }> =
         {};
@@ -230,10 +343,18 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
       }
 
       return {
-        period: query.period,
+        period: query.period ?? null,
         periodFrom: from.toISOString(),
+        periodTo: to.toISOString(),
         branchCode: branchFilter,
-        stats: aggregateSalesRows(sales),
+        stats,
+        charts: {
+          year,
+          monthlySeries,
+          hourlySeries,
+          topProducts: stats.topProducts,
+          topMonth: findTopMonth(monthlySeries),
+        },
         byBranch: Object.values(byBranch).sort((a, b) => b.totalUSD - a.totalUSD),
         recentSales: sales.slice(0, 50),
       };

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Trash2, X } from "lucide-react";
+import { FileText, Trash2 } from "lucide-react";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { useLocale } from "../contexts/LocaleContext";
 import { deleteCartDraft, listCartDrafts, saveCartDraft } from "../utils/cartDrafts";
+import SepelaModal from "./SepelaModal";
 
 const Box = "d" + "iv";
 
@@ -46,8 +47,6 @@ export default function CartDraftsModal({
     setMessageTone("neutral");
   }, [isOpen, merchantCode, operatorId]);
 
-  if (!isOpen) return null;
-
   const handleSave = () => {
     const result = saveCartDraft({
       merchantCode,
@@ -89,100 +88,86 @@ export default function CartDraftsModal({
   };
 
   return (
-    <Box className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <Box className="bg-[#1a1a1a] border border-gray-800 w-full max-w-lg max-h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
-        <Box className="flex items-center justify-between p-4 border-b border-gray-800">
-          <Box>
-            <p className="text-xs font-bold text-blue-500 uppercase tracking-widest">{t("drafts.title")}</p>
-            <p className="text-sm text-gray-400 mt-1">{t("drafts.subtitle")}</p>
-          </Box>
-          <button type="button" onClick={onClose} aria-label={t("common.close")}>
-            <X size={20} />
+    <SepelaModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t("drafts.title")}
+      icon={FileText}
+      subtitle={t("drafts.subtitle")}
+      maxWidth="max-w-lg"
+    >
+      <Box className="space-y-4">
+        <Box className="sepela-panel space-y-3">
+          <p className="sepela-label">{t("drafts.saveCurrent")}</p>
+          <p className="text-sm text-white font-semibold">
+            {cart.length === 0
+              ? t("drafts.cartEmpty")
+              : t("drafts.cartSummary", {
+                  lines: cart.length,
+                  items: cart.reduce((s, l) => s + l.qty, 0),
+                  total: currency.formatPrimary(cartTotal),
+                })}
+          </p>
+          <input
+            type="text"
+            placeholder={t("drafts.labelPlaceholder")}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            className="sepela-input"
+          />
+          <button type="button" disabled={cart.length === 0} onClick={handleSave} className="sepela-btn-primary">
+            {t("drafts.saveDraft")}
           </button>
         </Box>
 
-        <Box className="p-4 space-y-4 overflow-auto flex-1">
-          <Box className="p-3 rounded-lg border border-gray-800 bg-[#111111] space-y-3">
-            <p className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">{t("drafts.saveCurrent")}</p>
-            <p className="text-sm text-gray-300">
-              {cart.length === 0
-                ? t("drafts.cartEmpty")
-                : t("drafts.cartSummary", {
-                    lines: cart.length,
-                    items: cart.reduce((s, l) => s + l.qty, 0),
-                    total: currency.formatPrimary(cartTotal),
-                  })}
-            </p>
-            <input
-              type="text"
-              placeholder={t("drafts.labelPlaceholder")}
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
-            />
-            <button
-              type="button"
-              disabled={cart.length === 0}
-              onClick={handleSave}
-              className="w-full py-2 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-sm font-bold uppercase"
-            >
-              {t("drafts.saveDraft")}
-            </button>
-          </Box>
+        {message ? (
+          <p className={`text-xs font-semibold ${messageTone === "success" ? "text-green-400" : "text-red-400"}`}>
+            {message}
+          </p>
+        ) : null}
 
-          {message ? (
-            <p className={`text-xs ${messageTone === "success" ? "text-green-400" : "text-red-400"}`}>
-              {message}
-            </p>
-          ) : null}
-
-          <Box>
-            <p className="text-[10px] uppercase font-bold text-gray-500 tracking-widest mb-2">
-              {t("drafts.savedDrafts")} ({drafts.length})
-            </p>
-            {drafts.length === 0 ? (
-              <p className="text-sm text-gray-600">{t("drafts.noDrafts")}</p>
-            ) : (
-              <ul className="space-y-2">
-                {drafts.map((draft) => (
-                  <li
-                    key={draft.id}
-                    className="flex items-start justify-between gap-3 p-3 rounded-lg border border-gray-800 bg-[#0f0f0f]"
-                  >
-                    <Box className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-200 truncate">{draft.label}</p>
-                      <p className="text-[10px] text-gray-500 mt-1">
-                        {t("drafts.draftMeta", {
-                          items: draft.itemCount,
-                          total: currency.formatPrimary(draft.totalUSD),
-                          time: formatDraftTime(draft.savedAt),
-                        })}
-                      </p>
-                    </Box>
-                    <Box className="flex gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleLoad(draft)}
-                        className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-green-700 hover:bg-green-600"
-                      >
-                        {t("drafts.load")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(draft)}
-                        className="p-1.5 rounded text-red-400 hover:bg-red-950/40"
-                        aria-label={t("drafts.deleteDraftAria", { label: draft.label })}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </Box>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Box>
+        <Box>
+          <p className="sepela-label mb-2">
+            {t("drafts.savedDrafts")} ({drafts.length})
+          </p>
+          {drafts.length === 0 ? (
+            <p className="text-sm text-sepela-muted font-semibold">{t("drafts.noDrafts")}</p>
+          ) : (
+            <ul className="space-y-1">
+              {drafts.map((draft) => (
+                <li
+                  key={draft.id}
+                  className="sepela-list-item flex items-start justify-between gap-3 rounded-sm"
+                >
+                  <Box className="min-w-0">
+                    <p className="text-sm font-bold truncate">{draft.label}</p>
+                    <p className="text-[10px] text-sepela-muted mt-1 font-semibold">
+                      {t("drafts.draftMeta", {
+                        items: draft.itemCount,
+                        total: currency.formatPrimary(draft.totalUSD),
+                        time: formatDraftTime(draft.savedAt),
+                      })}
+                    </p>
+                  </Box>
+                  <Box className="flex gap-1 shrink-0">
+                    <button type="button" onClick={() => handleLoad(draft)} className="sepela-btn-secondary text-[10px]">
+                      {t("drafts.load")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(draft)}
+                      className="sepela-toolbar-btn text-red-400 hover:!bg-red-950/40"
+                      aria-label={t("drafts.deleteDraftAria", { label: draft.label })}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </Box>
+                </li>
+              ))}
+            </ul>
+          )}
         </Box>
       </Box>
-    </Box>
+    </SepelaModal>
   );
 }

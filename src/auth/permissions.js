@@ -9,6 +9,7 @@ export const PERMISSIONS = {
   MANAGE_USERS: "manage_users",
   VIEW_INVOICES: "view_invoices",
   REFUND_SALE: "refund_sale",
+  APPLY_CART_DISCOUNT: "apply_cart_discount",
 };
 
 const ROLE_PERMISSIONS = {
@@ -20,6 +21,7 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.MANAGE_SETTINGS,
     PERMISSIONS.VIEW_INVOICES,
     PERMISSIONS.REFUND_SALE,
+    PERMISSIONS.APPLY_CART_DISCOUNT,
   ],
   [ROLES.BOSS]: [
     PERMISSIONS.VIEW_REPORTS,

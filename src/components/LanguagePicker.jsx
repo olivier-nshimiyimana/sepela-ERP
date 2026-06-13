@@ -5,35 +5,25 @@ export default function LanguagePicker({ value, onChange }) {
   const { t } = useLocale();
 
   return (
-    <div className="space-y-2">
-      <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">
-        {t("language.label")}
-      </label>
-      <div className="grid grid-cols-2 gap-2">
+    <div className="sepela-field">
+      <label className="sepela-label">{t("language.label")}</label>
+      <div className="sepela-choice-grid">
         <button
           type="button"
           onClick={() => onChange(LOCALES.FR)}
-          className={`py-3 px-3 rounded-lg border text-left transition-colors ${
-            value === LOCALES.FR
-              ? "border-blue-500 bg-blue-950/30 text-white"
-              : "border-gray-700 bg-[#0a0a0a] text-gray-400 hover:border-gray-500"
-          }`}
+          className={`sepela-choice ${value === LOCALES.FR ? "sepela-choice--active" : ""}`}
         >
-          <span className="block text-sm font-bold">{t("language.french")}</span>
+          <span className="sepela-choice__title">{t("language.french")}</span>
         </button>
         <button
           type="button"
           onClick={() => onChange(LOCALES.EN)}
-          className={`py-3 px-3 rounded-lg border text-left transition-colors ${
-            value === LOCALES.EN
-              ? "border-blue-500 bg-blue-950/30 text-white"
-              : "border-gray-700 bg-[#0a0a0a] text-gray-400 hover:border-gray-500"
-          }`}
+          className={`sepela-choice ${value === LOCALES.EN ? "sepela-choice--active" : ""}`}
         >
-          <span className="block text-sm font-bold">{t("language.english")}</span>
+          <span className="sepela-choice__title">{t("language.english")}</span>
         </button>
       </div>
-      <p className="text-[11px] text-gray-500">{t("language.hint")}</p>
+      <p className="sepela-hint">{t("language.hint")}</p>
     </div>
   );
 }

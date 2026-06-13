@@ -1,5 +1,8 @@
 import { quickTenderAmounts } from "./changeCalculator";
 import { formatMoneyUSD } from "./formatMoney";
+import { roundCdf, roundUsd } from "./moneyRounding";
+
+export { roundCdf, roundUsd, sumUsd, sumCdf, lineTotalUsd, percentOfUsd } from "./moneyRounding";
 
 export const CURRENCY = {
   CDF: "CDF",
@@ -13,20 +16,24 @@ export function normalizePrimaryCurrency(value) {
 }
 
 export function usdToCdf(amountUsd, exchangeRate) {
-  const usd = Number(amountUsd) || 0;
+  const usd = roundUsd(amountUsd);
   const rate = Number(exchangeRate) || 0;
-  return Math.round(usd * rate);
+  return roundCdf(usd * rate);
 }
 
 export function cdfToUsd(amountCdf, exchangeRate) {
-  const cdf = Number(amountCdf) || 0;
+  const cdf = roundCdf(amountCdf);
   const rate = Number(exchangeRate) || 0;
   if (rate <= 0) return 0;
-  return cdf / rate;
+  return roundUsd(cdf / rate);
 }
 
 export function formatMoneyCDF(amount) {
-  const n = Math.round(Number(amount));
+  return formatMoneyCDFValue(roundCdf(amount));
+}
+
+export function formatMoneyCDFValue(cdfInteger) {
+  const n = roundCdf(cdfInteger);
   if (!Number.isFinite(n)) return "0 FC";
   return `${n.toLocaleString()}\u00a0FC`;
 }
@@ -34,12 +41,12 @@ export function formatMoneyCDF(amount) {
 /** Primary + secondary labels for a USD-stored amount. */
 export function formatDualCurrency(amountUsd, exchangeRate, primaryCurrency = DEFAULT_PRIMARY_CURRENCY) {
   const primary = normalizePrimaryCurrency(primaryCurrency);
-  const usd = Number(amountUsd) || 0;
+  const usd = roundUsd(amountUsd);
   const cdf = usdToCdf(usd, exchangeRate);
 
   if (primary === CURRENCY.CDF) {
     return {
-      primary: formatMoneyCDF(cdf),
+      primary: formatMoneyCDFValue(cdf),
       secondary: formatMoneyUSD(usd),
       primaryCode: CURRENCY.CDF,
       secondaryCode: CURRENCY.USD,
@@ -50,7 +57,7 @@ export function formatDualCurrency(amountUsd, exchangeRate, primaryCurrency = DE
 
   return {
     primary: formatMoneyUSD(usd),
-    secondary: formatMoneyCDF(cdf),
+    secondary: formatMoneyCDFValue(cdf),
     primaryCode: CURRENCY.USD,
     secondaryCode: CURRENCY.CDF,
     cdf,
@@ -75,7 +82,7 @@ export function cashReceivedToUsd(amountReceived, exchangeRate, primaryCurrency 
   if (normalizePrimaryCurrency(primaryCurrency) === CURRENCY.CDF) {
     return cdfToUsd(raw, exchangeRate);
   }
-  return raw;
+  return roundUsd(raw);
 }
 
 export function moneyFieldLabel(baseLabel, primaryCurrency = DEFAULT_PRIMARY_CURRENCY) {
@@ -85,7 +92,7 @@ export function moneyFieldLabel(baseLabel, primaryCurrency = DEFAULT_PRIMARY_CUR
 
 /** USD stored amount → string for a money input when primary is CDF. */
 export function usdToPrimaryInput(usd, exchangeRate, primaryCurrency = DEFAULT_PRIMARY_CURRENCY) {
-  const n = Number(usd);
+  const n = roundUsd(usd);
   if (!Number.isFinite(n) || n <= 0) return "";
   if (normalizePrimaryCurrency(primaryCurrency) === CURRENCY.CDF) {
     return String(usdToCdf(n, exchangeRate));
@@ -110,6 +117,53 @@ export function formatMoneyPairLine(amountUsd, exchangeRate, primaryCurrency = D
 export function saleExchangeRate(sale, fallbackRate = 2850) {
   const rate = Number(sale?.exchangeRate ?? fallbackRate);
   return rate > 0 ? rate : fallbackRate;
+}
+
+/**
+ * Integer-primary change for a sale (CDF-first; avoids USD round-trip on receipts).
+ */
+export function saleChangePrimary(sale, exchangeRate, primaryCurrency = DEFAULT_PRIMARY_CURRENCY) {
+  const primary = normalizePrimaryCurrency(primaryCurrency);
+  const rate = saleExchangeRate(sale, exchangeRate);
+
+  if (primary === CURRENCY.CDF) {
+    const storedCdf = sale?.changeDueCDF ?? sale?.changePrimary;
+    if (storedCdf != null && roundCdf(storedCdf) > 0) {
+      return roundCdf(storedCdf);
+    }
+    const receivedPrimary = sale?.amountReceivedPrimary;
+    if (receivedPrimary != null && Number.isFinite(Number(receivedPrimary))) {
+      const totalCdf = roundCdf(sale?.totalCDF ?? usdToCdf(sale?.totalUSD, rate));
+      return Math.max(0, roundCdf(receivedPrimary) - totalCdf);
+    }
+    return usdToCdf(sale?.changeDueUSD ?? 0, rate);
+  }
+
+  return roundUsd(sale?.changeDueUSD ?? 0);
+}
+
+export function formatSaleChange(sale, exchangeRate, primaryCurrency = DEFAULT_PRIMARY_CURRENCY) {
+  const primary = normalizePrimaryCurrency(primaryCurrency);
+  const rate = saleExchangeRate(sale, exchangeRate);
+  const changePrimary = saleChangePrimary(sale, rate, primary);
+
+  if (primary === CURRENCY.CDF) {
+    const changeUsd = cdfToUsd(changePrimary, rate);
+    return {
+      primary: formatMoneyCDFValue(changePrimary),
+      secondary: formatMoneyUSD(changeUsd),
+      changePrimary,
+      changeUsd,
+    };
+  }
+
+  const changeUsd = roundUsd(changePrimary);
+  return {
+    primary: formatMoneyUSD(changeUsd),
+    secondary: formatMoneyCDFValue(usdToCdf(changeUsd, rate)),
+    changePrimary: changeUsd,
+    changeUsd,
+  };
 }
 
 export function quickTenderAmountsPrimary(totalUSD, exchangeRate, primaryCurrency = DEFAULT_PRIMARY_CURRENCY) {

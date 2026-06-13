@@ -1,4 +1,53 @@
-export type PortalTab = "overview" | "merchants" | "accounts" | "activation" | "leases" | "sync";
+export type PortalTab =
+  | "overview"
+  | "merchants"
+  | "accounts"
+  | "activation"
+  | "leases"
+  | "sync"
+  | "portal_users"
+  | "audit";
+
+export type SecuritySummary = {
+  failedLoginsLastHour: number;
+  securityAlertsLast24h: number;
+  topFailedIps: Array<{ ip: string; count: number }>;
+};
+
+export type AuditLogEntry = {
+  id: string;
+  adminId: string | null;
+  adminUsername: string | null;
+  action: string;
+  method: string;
+  path: string;
+  targetType: string | null;
+  targetId: string | null;
+  ipAddress: string | null;
+  statusCode: number | null;
+  details: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export type PortalAdminRole = "super_admin" | "admin" | "read_only";
+
+export type PortalAdminUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  role: PortalAdminRole;
+};
+
+export type PortalUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  role: PortalAdminRole;
+  status: string;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type Overview = {
   merchants: number;
@@ -86,7 +135,7 @@ export type SyncIngestion = {
   failed: SyncBuckets;
 };
 
-export type EditKind = "merchant" | "branch" | "device" | "activation" | "lease" | "operator";
+export type EditKind = "merchant" | "branch" | "device" | "activation" | "lease" | "operator" | "portal_user";
 
 export type Operator = {
   id: string;

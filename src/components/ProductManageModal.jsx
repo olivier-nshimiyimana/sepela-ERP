@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { Download, Package, Pencil, Plus, ShoppingCart, Trash2, Truck, Upload, X } from "lucide-react";
+import { Download, Package, Pencil, Plus, ShoppingCart, Trash2, Truck, Upload } from "lucide-react";
+import ManagementScreen from "./ManagementScreen";
 import ExpiryBadge from "./ExpiryBadge";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { useLocale } from "../contexts/LocaleContext";
@@ -108,31 +109,31 @@ function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLa
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 p-3 bg-[#0f0f0f] rounded-lg border border-gray-800">
-      <p className="text-xs font-bold text-blue-500 uppercase tracking-widest">{saveLabel}</p>
+    <form onSubmit={handleSubmit} className="space-y-3 sepela-panel">
+      <p className="sepela-label">{saveLabel}</p>
       <input
         type="text"
         placeholder={t("products.productName")}
         value={fields.name}
         onChange={set("name")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+        className="sepela-input"
       />
       <input
         type="text"
         placeholder={t("products.lotNumber")}
         value={fields.lotNumber}
         onChange={set("lotNumber")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:border-blue-500 outline-none"
+        className="sepela-input font-mono"
       />
       <Box>
-        <label className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">
+        <label className="sepela-label">
           {t("products.expirationDate")}
         </label>
         <input
           type="date"
           value={fields.expirationDate}
           onChange={set("expirationDate")}
-          className="w-full mt-1 bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+          className="w-full mt-1 sepela-input"
         />
       </Box>
       <input
@@ -142,12 +143,12 @@ function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLa
         placeholder={`${currency.fieldLabel(t("products.priceLabel"))} *`}
         value={fields.price}
         onChange={set("price")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+        className="sepela-input"
       />
       <select
         value={fields.categoryId}
         onChange={set("categoryId")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+        className="sepela-input"
       >
         <option value="">{t("products.noCategory")}</option>
         {productCategories.map((category) => (
@@ -162,7 +163,7 @@ function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLa
           placeholder={t("products.buyUnit")}
           value={fields.buyUnit}
           onChange={set("buyUnit")}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+          className="sepela-input"
         />
         <input
           type="number"
@@ -171,7 +172,7 @@ function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLa
           placeholder={t("products.qtyPerUnit")}
           value={fields.qtyPerUnit}
           onChange={set("qtyPerUnit")}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+          className="sepela-input"
         />
       </Box>
       <Box className="grid grid-cols-2 gap-2">
@@ -182,14 +183,14 @@ function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLa
           placeholder={currency.fieldLabel(t("products.buyUnitCost"))}
           value={fields.buyUnitCost}
           onChange={set("buyUnitCost")}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+          className="sepela-input"
         />
         <input
           type="text"
           placeholder={t("products.itemSizeLabel")}
           value={fields.itemSizeLabel}
           onChange={set("itemSizeLabel")}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+          className="sepela-input"
         />
       </Box>
       <Box className="grid grid-cols-2 gap-2">
@@ -200,7 +201,7 @@ function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLa
           placeholder={t("products.stockQuantity")}
           value={fields.stock}
           onChange={set("stock")}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+          className="sepela-input"
         />
         <input
           type="number"
@@ -209,7 +210,7 @@ function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLa
           placeholder={t("products.reorderLevel")}
           value={fields.reorderLevelItems}
           onChange={set("reorderLevelItems")}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+          className="sepela-input"
         />
       </Box>
       {error && <p className="text-red-400 text-xs">{tError(error)}</p>}
@@ -217,7 +218,7 @@ function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLa
         <button
           type="submit"
           disabled={busy}
-          className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 py-2 rounded text-sm font-bold uppercase"
+          className="sepela-btn-primary flex-1 disabled:opacity-60"
         >
           {busy ? t("products.saving") : t("common.save")}
         </button>
@@ -225,7 +226,7 @@ function ProductForm({ initial, productCategories = [], onSave, onCancel, saveLa
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 rounded text-sm border border-gray-700 text-gray-400 hover:text-white"
+            className="sepela-btn-secondary"
           >
             {t("common.cancel")}
           </button>
@@ -484,27 +485,17 @@ export default function ProductManageModal({
   };
 
   return (
-    <Box className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <Box className="bg-[#1a1a1a] border border-gray-800 w-full max-w-6xl max-h-[92vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
-        <Box className="p-4 border-b border-gray-800 flex justify-between items-center shrink-0">
-          <Box>
-            <h3 className="font-bold flex items-center gap-2">
-              <Package className="text-blue-500" size={20} />
-              {t("products.title")}
-            </h3>
-            <p className="text-[10px] text-gray-500 mt-1">
-              {t("products.subtitle")}
-            </p>
-          </Box>
-          <button type="button" onClick={handleClose} aria-label={t("common.close")}>
-            <X size={20} />
-          </button>
-        </Box>
-
-        <Box className="p-4 overflow-auto flex-1">
-          <Box className="grid grid-cols-1 xl:grid-cols-[1.2fr,1fr] gap-4">
+    <ManagementScreen
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={t("products.title")}
+      icon={Package}
+      subtitle={t("products.subtitle")}
+      wide
+    >
+      <Box className="grid grid-cols-1 xl:grid-cols-[1.2fr,1fr] gap-4">
             <Box className="space-y-4 min-w-0">
-              <Box className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <Box className="sepela-mgmt-toolbar">
                 {!showAddForm && !editingId && (
                   <button
                     type="button"
@@ -516,33 +507,25 @@ export default function ProductManageModal({
                       setAddProductMessage("");
                       setAddFormKey((key) => key + 1);
                     }}
-                    className="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-gray-700 rounded-lg text-sm text-gray-400 hover:text-white hover:border-blue-500"
+                    className="sepela-btn-secondary"
                   >
                     <Plus size={16} />
                     {t("products.addProduct")}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={startPurchase}
-                  className="w-full flex items-center justify-center gap-2 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:text-white hover:border-amber-500"
-                >
+                <button type="button" onClick={startPurchase} className="sepela-btn-secondary">
                   <Truck size={16} />
                   {t("products.recordPurchase")}
                 </button>
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full flex items-center justify-center gap-2 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:text-white hover:border-green-500"
+                  className="sepela-btn-secondary"
                 >
                   <Upload size={16} />
                   {t("products.importCsv")}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleExportCsv}
-                  className="w-full flex items-center justify-center gap-2 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:text-white hover:border-cyan-500"
-                >
+                <button type="button" onClick={handleExportCsv} className="sepela-btn-secondary">
                   <Download size={16} />
                   {t("products.exportFormat")}
                 </button>
@@ -556,11 +539,11 @@ export default function ProductManageModal({
                 className="hidden"
               />
 
-              <p className="text-[10px] text-gray-500">
+              <p className="sepela-hint">
                 {t("products.importHeaderHint")}{" "}
-                <span className="font-mono text-gray-400">{PRODUCT_IMPORT_COLUMNS.join(", ")}</span>
+                <span className="font-mono sepela-text-muted">{PRODUCT_IMPORT_COLUMNS.join(", ")}</span>
               </p>
-              <p className="text-[10px] text-gray-600">{t("products.importBatchHint")}</p>
+              <p className="sepela-hint">{t("products.importBatchHint")}</p>
 
               {importMessage && (
                 <p
@@ -587,18 +570,18 @@ export default function ProductManageModal({
               {showPurchaseForm && (
                 <form
                   onSubmit={submitPurchase}
-                  className="space-y-4 p-4 bg-[#101010] rounded-xl border border-gray-800"
+                  className="sepela-subpanel space-y-4 p-4"
                 >
                   <Box className="flex items-start justify-between gap-3">
                     <Box>
-                      <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">
+                      <p className="sepela-label">
                         {t("products.newPurchase")}
                       </p>
-                      <p className="text-sm text-gray-400 mt-1">
+                      <p className="text-sm sepela-text-muted mt-1">
                         {t("products.purchaseSubtitle")}
                       </p>
                     </Box>
-                    <ShoppingCart className="text-amber-400 shrink-0" size={18} />
+                    <ShoppingCart className="text-sepela-accent shrink-0" size={18} />
                   </Box>
 
                   <datalist id="supplier-options">
@@ -614,7 +597,7 @@ export default function ProductManageModal({
                       placeholder={t("products.supplierName")}
                       value={supplierFields.name}
                       onChange={(e) => handleSupplierNameChange(e.target.value)}
-                      className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+                      className="sepela-input"
                     />
                     <input
                       type="text"
@@ -623,7 +606,7 @@ export default function ProductManageModal({
                       onChange={(e) =>
                         setSupplierFields((prev) => ({ ...prev, phone: e.target.value }))
                       }
-                      className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+                      className="sepela-input"
                     />
                   </Box>
 
@@ -633,7 +616,7 @@ export default function ProductManageModal({
                       placeholder={t("products.purchaseReference")}
                       value={purchaseReference}
                       onChange={(e) => setPurchaseReference(e.target.value)}
-                      className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+                      className="sepela-input"
                     />
                     <textarea
                       rows={2}
@@ -642,7 +625,7 @@ export default function ProductManageModal({
                       onChange={(e) =>
                         setSupplierFields((prev) => ({ ...prev, address: e.target.value }))
                       }
-                      className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+                      className="sepela-input"
                     />
                   </Box>
 
@@ -651,18 +634,18 @@ export default function ProductManageModal({
                     placeholder={t("products.purchaseNotes")}
                     value={purchaseNotes}
                     onChange={(e) => setPurchaseNotes(e.target.value)}
-                    className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+                    className="sepela-input"
                   />
 
                   <Box className="space-y-2">
                     <Box className="flex items-center justify-between gap-3">
-                      <p className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">
+                      <p className="sepela-label">
                         {t("products.purchaseItems")}
                       </p>
                       <button
                         type="button"
                         onClick={addPurchaseLine}
-                        className="text-[10px] font-bold uppercase text-amber-400 hover:text-amber-300"
+                        className="sepela-link-btn"
                       >
                         {t("products.addLine")}
                       </button>
@@ -671,12 +654,12 @@ export default function ProductManageModal({
                     {purchaseLines.map((line, index) => (
                       <Box
                         key={`${index}-${line.productId || "new"}`}
-                        className="grid grid-cols-1 md:grid-cols-[1.8fr,0.8fr,0.9fr,1.2fr,1.2fr,auto] gap-2 items-start p-3 rounded-lg border border-gray-800 bg-[#161616]"
+                        className="sepela-card-item grid grid-cols-1 md:grid-cols-[1.8fr,0.8fr,0.9fr,1.2fr,1.2fr,auto] gap-2 items-start"
                       >
                         <select
                           value={line.productId}
                           onChange={(e) => updatePurchaseLine(index, "productId", e.target.value)}
-                          className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+                          className="sepela-input"
                         >
                           <option value="">{t("products.selectProduct")}</option>
                           {products.map((product) => (
@@ -692,7 +675,7 @@ export default function ProductManageModal({
                           placeholder={t("common.qty")}
                           value={line.qty}
                           onChange={(e) => updatePurchaseLine(index, "qty", e.target.value)}
-                          className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm"
+                          className="sepela-input"
                         />
                         <input
                           type="number"
@@ -701,14 +684,14 @@ export default function ProductManageModal({
                           placeholder={currency.fieldLabel(t("products.unitCost"))}
                           value={line.unitCost}
                           onChange={(e) => updatePurchaseLine(index, "unitCost", e.target.value)}
-                          className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm"
+                          className="sepela-input"
                         />
                         <input
                           type="text"
                           placeholder={t("products.lotNumber").replace(" *", "")}
                           value={line.lotNumber}
                           onChange={(e) => updatePurchaseLine(index, "lotNumber", e.target.value)}
-                          className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm font-mono"
+                          className="sepela-input font-mono"
                         />
                         <input
                           type="date"
@@ -716,13 +699,13 @@ export default function ProductManageModal({
                           onChange={(e) =>
                             updatePurchaseLine(index, "expirationDate", e.target.value)
                           }
-                          className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm"
+                          className="sepela-input"
                         />
                         <button
                           type="button"
                           onClick={() => removePurchaseLine(index)}
                           disabled={purchaseLines.length <= 1}
-                          className="px-3 py-2 rounded text-red-500 disabled:text-gray-700"
+                          className="px-3 py-2 rounded text-red-500 disabled:opacity-40"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -730,17 +713,17 @@ export default function ProductManageModal({
                     ))}
                   </Box>
 
-                  <Box className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 border-t border-gray-800">
+                  <Box className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 sepela-divider">
                     <Box className="text-sm">
-                      <span className="text-gray-500">{t("products.purchaseTotal")}</span>{" "}
-                      <span className="font-mono text-amber-400">
+                      <span className="sepela-text-secondary">{t("products.purchaseTotal")}</span>{" "}
+                      <span className="font-mono text-sepela-accent sepela-money">
                         {currency.formatPrimary(purchaseTotalUsd)}
                       </span>
                     </Box>
                     <Box className="flex gap-2">
                       <button
                         type="submit"
-                        className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-700 text-sm font-bold uppercase"
+                        className="sepela-btn-primary !w-auto"
                       >
                         {t("products.savePurchase")}
                       </button>
@@ -752,7 +735,7 @@ export default function ProductManageModal({
                           setPurchaseMessageSuccess(false);
                           resetPurchaseForm();
                         }}
-                        className="px-4 py-2 rounded text-sm border border-gray-700 text-gray-400 hover:text-white"
+                        className="sepela-btn-secondary"
                       >
                         {t("common.cancel")}
                       </button>
@@ -799,25 +782,21 @@ export default function ProductManageModal({
                 />
               )}
 
-              <Box className="bg-[#111111] border border-gray-800 rounded-xl overflow-hidden">
-                <Box className="p-4 border-b border-gray-800">
-                  <p className="text-xs font-bold text-cyan-400 uppercase tracking-widest">
-                    {t("products.recentPurchases")}
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    {t("products.recentPurchasesHint")}
-                  </p>
+              <Box className="sepela-subpanel">
+                <Box className="sepela-subpanel-header">
+                  <h4 className="sepela-section-title">{t("products.recentPurchases")}</h4>
+                  <p className="sepela-hint mt-1">{t("products.recentPurchasesHint")}</p>
                 </Box>
                 {recentPurchases.length === 0 ? (
-                  <p className="p-4 text-sm text-gray-600">{t("products.noPurchases")}</p>
+                  <p className="p-4 text-sm sepela-hint">{t("products.noPurchases")}</p>
                 ) : (
-                  <ul className="divide-y divide-gray-900 max-h-104 overflow-y-auto">
+                  <ul className="sepela-list-rows max-h-104 overflow-y-auto sepela-scroll">
                     {recentPurchases.map((purchase) => (
                       <li key={purchase.id} className="p-4 space-y-2">
                         <Box className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
                           <Box>
-                            <p className="text-sm font-semibold text-gray-200">{purchase.supplierName}</p>
-                            <p className="text-[10px] text-gray-500 mt-0.5">
+                            <p className="text-sm font-bold text-white">{purchase.supplierName}</p>
+                            <p className="sepela-card-item__meta">
                               {formatPurchaseTime(purchase.timestamp, t)}
                               {purchase.reference
                                 ? ` · ${t("products.purchaseRef", { ref: purchase.reference })}`
@@ -828,7 +807,7 @@ export default function ProductManageModal({
                             <p className="font-mono text-amber-400">
                               {currency.formatPrimary(purchase.totalCost ?? 0)}
                             </p>
-                            <p className="text-[10px] text-gray-500">
+                            <p className="sepela-card-item__meta">
                               {t("products.purchaseLines", { count: purchase.items?.length ?? 0 })}
                             </p>
                           </Box>
@@ -837,15 +816,15 @@ export default function ProductManageModal({
                           {(purchase.items ?? []).map((item) => (
                             <li
                               key={item.id}
-                              className="text-xs text-gray-400 flex flex-wrap items-center gap-x-2"
+                              className="text-xs sepela-text-muted flex flex-wrap items-center gap-x-2"
                             >
-                              <span className="text-gray-200">{item.productName}</span>
+                              <span className="text-white">{item.productName}</span>
                               <span className="font-mono">x{item.qty}</span>
                               <span className="font-mono">
                                 @ {currency.formatPrimary(item.unitCost ?? 0)}
                               </span>
                               {item.lotNumber && (
-                                <span className="font-mono text-gray-500">
+                                <span className="font-mono sepela-text-secondary">
                                   {t("pos.lot")} {item.lotNumber}
                                 </span>
                               )}
@@ -853,7 +832,7 @@ export default function ProductManageModal({
                           ))}
                         </ul>
                         {purchase.createdByUserName && (
-                          <p className="text-[10px] text-gray-600">
+                          <p className="sepela-hint">
                             {t("products.recordedBy", { name: purchase.createdByUserName })}
                           </p>
                         )}
@@ -865,14 +844,10 @@ export default function ProductManageModal({
             </Box>
 
             <Box className="space-y-3 min-w-0">
-              <Box className="bg-[#111111] border border-gray-800 rounded-xl overflow-hidden">
-                <Box className="p-4 border-b border-gray-800">
-                  <p className="text-xs font-bold text-blue-500 uppercase tracking-widest">
-                    {t("products.productCatalog")}
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    {t("products.catalogHint")}
-                  </p>
+              <Box className="sepela-subpanel">
+                <Box className="sepela-subpanel-header">
+                  <h4 className="sepela-section-title">{t("products.productCatalog")}</h4>
+                  <p className="sepela-hint mt-1">{t("products.catalogHint")}</p>
                 </Box>
                 <Box className="max-h-[70vh] overflow-y-auto p-4">
                   <ul className="space-y-2">
@@ -882,20 +857,20 @@ export default function ProductManageModal({
                       return (
                       <li
                         key={product.id}
-                        className="p-3 bg-[#252525] rounded-lg border border-gray-800 space-y-2"
+                        className="sepela-card-item space-y-2"
                       >
                         <Box className="flex items-start justify-between gap-2">
                           <Box className="min-w-0 flex-1">
-                            <p className="font-medium text-gray-200">{product.name}</p>
+                            <p className="sepela-card-item__title">{product.name}</p>
                             {product.categoryId && categoryById.get(product.categoryId) ? (
-                              <p className="text-[10px] text-amber-500/90 mt-0.5">
+                              <p className="sepela-card-item__meta text-amber-400">
                                 {categoryById.get(product.categoryId).name}
                               </p>
                             ) : null}
-                            <p className="text-[10px] font-mono text-gray-500 mt-0.5">
+                            <p className="sepela-card-item__meta font-mono">
                               {t("pos.lot")} {product.lotNumber}
                             </p>
-                            <p className="text-blue-400 text-sm mt-1">
+                            <p className="text-sepela-accent text-base font-bold mt-1">
                               {currency.formatPrimary(product.price)}
                             </p>
                             <Box className="flex flex-wrap items-center gap-2 mt-2">
@@ -907,12 +882,12 @@ export default function ProductManageModal({
                                 />
                               ) : null}
                               <span
-                                className={`text-[10px] font-bold ${
+                                className={`sepela-card-item__meta font-bold ${
                                   inStock && product.reorderStatus === "REORDER"
                                     ? "text-red-400"
                                     : stockQty <= 0
-                                      ? "text-gray-600"
-                                      : "text-gray-500"
+                                      ? "sepela-hint"
+                                      : ""
                                 }`}
                               >
                                 {t("products.stockLabel", { count: stockQty })}
@@ -922,7 +897,7 @@ export default function ProductManageModal({
                               </span>
                             </Box>
                             {inStock ? (
-                              <p className="text-[10px] text-gray-600 mt-1">
+                              <p className="sepela-hint mt-1">
                                 {t("pos.exp")}: {formatExpiryDate(product.expirationDate)}
                               </p>
                             ) : null}
@@ -935,7 +910,7 @@ export default function ProductManageModal({
                                 setShowPurchaseForm(false);
                                 setEditingId(product.id);
                               }}
-                              className="p-2 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+                              className="sepela-icon-btn sepela-icon-btn--accent"
                               aria-label={`Edit ${product.name}`}
                             >
                               <Pencil size={16} />
@@ -948,7 +923,7 @@ export default function ProductManageModal({
                                   if (editingId === product.id) setEditingId(null);
                                 }
                               }}
-                              className="p-2 rounded text-red-500 hover:bg-red-950/50"
+                              className="sepela-icon-btn sepela-icon-btn--danger"
                               aria-label={`Delete ${product.name}`}
                             >
                               <Trash2 size={16} />
@@ -957,25 +932,25 @@ export default function ProductManageModal({
                         </Box>
 
                         {restockId === product.id ? (
-                          <Box className="space-y-2 pt-2 border-t border-gray-800">
+                          <Box className="space-y-2 pt-2 sepela-divider">
                             <input
                               type="number"
                               min="1"
                               placeholder={t("products.qtyToAdd")}
-                              className="w-full bg-[#0a0a0a] border border-gray-700 rounded px-2 py-1.5 text-sm"
+                              className="sepela-input"
                               value={restockQty}
                               onChange={(e) => setRestockQty(e.target.value)}
                             />
                             <input
                               type="text"
                               placeholder={t("products.restockLot")}
-                              className="w-full bg-[#0a0a0a] border border-gray-700 rounded px-2 py-1.5 text-sm font-mono"
+                              className="sepela-input font-mono"
                               value={restockLot}
                               onChange={(e) => setRestockLot(e.target.value)}
                             />
                             <input
                               type="date"
-                              className="w-full bg-[#0a0a0a] border border-gray-700 rounded px-2 py-1.5 text-sm"
+                              className="sepela-input"
                               value={restockExpiry}
                               onChange={(e) => setRestockExpiry(e.target.value)}
                             />
@@ -984,7 +959,7 @@ export default function ProductManageModal({
                                 type="button"
                                 disabled={restockBusy}
                                 onClick={() => submitRestock(product.id, product.name)}
-                                className="flex-1 py-1.5 bg-green-700 disabled:opacity-60 rounded text-xs font-bold uppercase"
+                                className="sepela-btn-primary flex-1 !w-auto py-1.5 text-xs disabled:opacity-60"
                               >
                                 {restockBusy ? t("products.saving") : t("products.confirmRestock")}
                               </button>
@@ -995,7 +970,7 @@ export default function ProductManageModal({
                                   clearRestockForm();
                                   setRestockMessage("");
                                 }}
-                                className="px-3 text-gray-500 text-xs"
+                                className="px-3 sepela-text-secondary text-xs"
                               >
                                 {t("common.cancel")}
                               </button>
@@ -1005,7 +980,7 @@ export default function ProductManageModal({
                           <button
                             type="button"
                             onClick={() => startRestock(product)}
-                            className="text-[10px] font-bold uppercase text-green-500 hover:text-green-400"
+                            className="sepela-link-btn text-green-500 hover:text-green-400"
                           >
                             {t("products.restockBatch")}
                           </button>
@@ -1017,9 +992,7 @@ export default function ProductManageModal({
                 </Box>
               </Box>
             </Box>
-          </Box>
-        </Box>
       </Box>
-    </Box>
+    </ManagementScreen>
   );
 }

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createSalt, hashPassword, verifyPassword } from "../auth/password.js";
 import { withTransaction } from "../db.js";
 import { fetchActiveLeaseForOperator, fetchLeaseStatusByToken } from "./deviceLease.js";
-import { assertPortalToken } from "./auth.js";
+import { assertPortalAdmin, assertPortalAdminWrite, assertPortalToken } from "./auth.js";
 
 const ROLES = ["cashier", "manager", "boss"] as const;
 
@@ -150,7 +150,7 @@ export const operatorRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/admin/operators/username-available", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const query = usernameAvailabilityQuery.parse(request.query);
     const username = query.username.trim().toLowerCase();
 
@@ -175,7 +175,7 @@ export const operatorRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/admin/operators", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdmin(request);
     const query = listOperatorsQuery.parse(request.query);
 
     const operators = await withTransaction(async (client) => {
@@ -215,7 +215,7 @@ export const operatorRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/admin/operators", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const body = createOperatorBody.parse(request.body);
     const username = body.username.trim().toLowerCase();
     const salt = createSalt();
@@ -273,7 +273,7 @@ export const operatorRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.patch("/admin/operators/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
     const body = patchOperatorBody.parse(request.body);
 
@@ -351,7 +351,7 @@ export const operatorRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/admin/operators/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
 
     await withTransaction(async (client) => {

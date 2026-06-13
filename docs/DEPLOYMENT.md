@@ -55,8 +55,9 @@ Outputs (after a successful build):
 | Script | Purpose |
 |--------|---------|
 | `npm run legal:sync` | Sync EULA → installer + web public |
-| `npm run build:installer` | Sync legal, build frontend, run `tauri build` |
-| `npm run build:win` | NSIS-only bundle (faster iteration) |
+| `npm run prepare:installer` | Validate toolchain, version, token, icons; sync EULA |
+| `npm run build:installer` | Run prepare, then `tauri build` (NSIS + MSI) |
+| `npm run build:win` | Run prepare, then NSIS-only bundle (faster iteration) |
 
 ## Installer customization (`tauri.conf.json`)
 

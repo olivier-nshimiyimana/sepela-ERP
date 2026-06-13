@@ -1,12 +1,14 @@
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Copy, Download, FileText, MessageCircle, Pencil, Plus, Printer, Search, Trash2, User, X } from "lucide-react";
+import { Copy, Download, FileText, MessageCircle, Pencil, Plus, Printer, Search, Trash2, UserCircle } from "lucide-react";
+import ManagementScreen from "./ManagementScreen";
 import { isTauriRuntime } from "../db/client";
 import ClientStatementPrintBody from "./ClientStatementPrintBody";
 import { salesForCustomer } from "../utils/customers";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { useLocale } from "../contexts/LocaleContext";
+import { useNotification } from "../contexts/NotificationContext";
 import {
   filterClientSalesByDateRange,
   formatClientStatementRange,
@@ -15,7 +17,9 @@ import {
 } from "../utils/clientStatement";
 import { saleExchangeRate } from "../utils/currency";
 import { saveNodeAsPdf } from "../utils/domPdf";
+import { formatPdfSaveError } from "../utils/savePdfDocument";
 import { getInvoiceFormat, getInvoicePageCssSize, getInvoicePdfFormat } from "../utils/invoiceFormats";
+import { formatDisplayTitle } from "../utils/uiText";
 
 const Box = "d" + "iv";
 
@@ -49,14 +53,14 @@ function ClientForm({ initial, onSave, onCancel, saveLabel }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 p-3 bg-[#0f0f0f] rounded-lg border border-gray-800">
-      <p className="text-xs font-bold text-cyan-400 uppercase tracking-widest">{saveLabel}</p>
+    <form onSubmit={handleSubmit} className="space-y-3 sepela-panel">
+      <p className="sepela-label">{saveLabel}</p>
       <input
         type="text"
         placeholder={t("clients.clientName")}
         value={fields.name}
         onChange={set("name")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none"
+        className="sepela-input"
       />
       <input
         type="text"
@@ -64,41 +68,41 @@ function ClientForm({ initial, onSave, onCancel, saveLabel }) {
         placeholder={`${t("common.phone")} *`}
         value={fields.phone}
         onChange={set("phone")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none"
+        className="sepela-input"
       />
       <input
         type="text"
         placeholder={`${t("payment.taxNumber")} *`}
         value={fields.taxNumber}
         onChange={set("taxNumber")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:border-cyan-500 outline-none"
+        className="sepela-input font-mono"
       />
       <textarea
         placeholder={t("common.address")}
         value={fields.address}
         onChange={set("address")}
         rows={2}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none resize-none"
+        className="sepela-input resize-none"
       />
       <input
         type="email"
         placeholder={t("common.email")}
         value={fields.email}
         onChange={set("email")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none"
+        className="sepela-input"
       />
       <input
         type="text"
         placeholder={t("clients.clientTier")}
         value={fields.clientTier}
         onChange={set("clientTier")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-cyan-500 outline-none"
+        className="sepela-input"
       />
       {error && <p className="text-red-400 text-xs">{tError(error)}</p>}
       <Box className="flex gap-2">
         <button
           type="submit"
-          className="flex-1 bg-cyan-600 hover:bg-cyan-700 py-2 rounded text-sm font-bold uppercase"
+          className="sepela-btn-primary flex-1"
         >
           {t("common.save")}
         </button>
@@ -106,7 +110,7 @@ function ClientForm({ initial, onSave, onCancel, saveLabel }) {
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 rounded text-sm border border-gray-700 text-gray-400 hover:text-white"
+            className="sepela-btn-secondary"
           >
             {t("common.cancel")}
           </button>
@@ -129,6 +133,7 @@ export default function ClientManageModal({
 }) {
   const currency = useCurrency();
   const { t, tError, locale } = useLocale();
+  const { notifySuccess, notifyError } = useNotification();
   const [editingId, setEditingId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -253,42 +258,37 @@ export default function ClientManageModal({
   const handleSaveStatementPdf = async () => {
     if (!statementCustomer || !exportRef.current) return;
     try {
-      await saveNodeAsPdf(exportRef.current, `client-statement-${statementCustomer.name}`, {
+      const savedPath = await saveNodeAsPdf(exportRef.current, `client-statement-${statementCustomer.name}`, {
         format: getInvoicePdfFormat(statementFormatId),
       });
-      alert(t("clients.pdfSaved"));
+      if (!savedPath) return;
+      notifySuccess(t("notification.documentSaved", { path: savedPath }));
     } catch (error) {
-      alert(t("clients.pdfFailed", { error: error?.message ?? error }));
+      const formatted = formatPdfSaveError(error);
+      notifyError(t(formatted.key, formatted.params));
     }
   };
 
   return (
-    <Box className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <Box className="bg-[#1a1a1a] border border-gray-800 w-full max-w-5xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
-        <Box className="p-4 border-b border-gray-800 flex justify-between items-center shrink-0">
-          <Box>
-            <h3 className="font-bold flex items-center gap-2">
-              <User className="text-cyan-400" size={20} />
-              {t("clients.title")}
-            </h3>
-            <p className="text-[10px] text-gray-500 mt-1">{t("clients.subtitle")}</p>
-          </Box>
-          <button type="button" onClick={handleClose} aria-label={t("common.close")}>
-            <X size={20} />
-          </button>
-        </Box>
-
-        <Box className="p-4 overflow-auto flex-1">
-          <Box className="grid grid-cols-1 xl:grid-cols-[1.1fr,0.9fr] gap-4">
+  <>
+    <ManagementScreen
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={t("clients.title")}
+      icon={UserCircle}
+      subtitle={t("clients.subtitle")}
+      wide
+    >
+      <Box className="grid grid-cols-1 xl:grid-cols-[1.1fr,0.9fr] gap-4">
             <Box className="space-y-4 min-w-0">
-              <Box className="relative">
-                <Search className="absolute left-3 top-2.5 text-gray-500" size={16} />
+              <Box className="sepela-search-wrap">
+                <Search className="sepela-search-icon" size={16} />
                 <input
                   type="text"
                   placeholder={t("clients.searchPlaceholder")}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-[#0f0f0f] border border-gray-700 rounded px-10 py-2 text-sm focus:border-cyan-500 outline-none"
+                  className="sepela-input"
                 />
               </Box>
 
@@ -296,7 +296,7 @@ export default function ClientManageModal({
                 <button
                   type="button"
                   onClick={() => setShowAddForm(true)}
-                  className="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-gray-700 rounded-lg text-sm text-gray-400 hover:text-white hover:border-cyan-500"
+                  className="sepela-dashed-btn"
                 >
                   <Plus size={16} />
                   {t("clients.addClient")}
@@ -330,7 +330,7 @@ export default function ClientManageModal({
               )}
 
               {filteredCustomers.length === 0 ? (
-                <p className="text-sm text-gray-600 text-center py-6">{t("clients.noClients")}</p>
+                <p className="text-sm sepela-hint text-center py-6">{t("clients.noClients")}</p>
               ) : (
                 <ul className="space-y-2">
                   {filteredCustomers.map((customer) => {
@@ -340,28 +340,24 @@ export default function ClientManageModal({
                     return (
                       <li
                         key={customer.id}
-                        className={`p-3 rounded-lg border ${
-                          isActive
-                            ? "bg-cyan-950/20 border-cyan-700/60"
-                            : "bg-[#252525] border-gray-800"
-                        }`}
+                        className={`sepela-card-item ${isActive ? "sepela-card-item--active" : ""}`}
                       >
                         <Box className="flex items-start justify-between gap-3">
                           <Box className="min-w-0 flex-1">
-                            <p className="font-medium text-gray-200">{customer.name}</p>
-                            <p className="text-[10px] text-gray-500 mt-1">{customer.phone}</p>
-                            <p className="text-[10px] font-mono text-gray-500 mt-1">
+                            <p className="sepela-card-item__title">{formatDisplayTitle(customer.name)}</p>
+                            <p className="sepela-card-item__meta">{customer.phone}</p>
+                            <p className="sepela-card-item__meta font-mono">
                               {t("clients.taxLabel", { number: customer.taxNumber })}
                             </p>
                             {customer.email && (
-                              <p className="text-[10px] text-gray-500 mt-1">{customer.email}</p>
+                              <p className="sepela-card-item__meta">{customer.email}</p>
                             )}
                             {customer.address && (
-                              <p className="text-[10px] text-gray-600 mt-1 whitespace-pre-wrap">
-                                {customer.address}
+                              <p className="sepela-card-item__meta whitespace-pre-wrap">
+                                {formatDisplayTitle(customer.address)}
                               </p>
                             )}
-                            <p className="text-[10px] text-cyan-400 mt-2">
+                            <p className="sepela-card-item__meta text-sepela-accent font-bold mt-2">
                               {invoiceCount === 1
                                 ? t("clients.invoiceCount", { count: invoiceCount })
                                 : t("clients.invoiceCountPlural", { count: invoiceCount })}
@@ -375,7 +371,7 @@ export default function ClientManageModal({
                                   prev === customer.id ? null : customer.id
                                 );
                               }}
-                              className="px-2 py-2 rounded text-cyan-400 hover:text-white hover:bg-gray-800 text-[10px] font-bold uppercase"
+                              className="sepela-btn-secondary text-xs !py-2 !w-auto"
                             >
                               {t("clients.statement")}
                             </button>
@@ -385,7 +381,7 @@ export default function ClientManageModal({
                                 setShowAddForm(false);
                                 setEditingId(customer.id);
                               }}
-                              className="p-2 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+                              className="sepela-icon-btn sepela-icon-btn--accent"
                               aria-label={`Edit ${customer.name}`}
                             >
                               <Pencil size={16} />
@@ -402,7 +398,7 @@ export default function ClientManageModal({
                                 if (editingId === customer.id) setEditingId(null);
                                 if (statementCustomerId === customer.id) setStatementCustomerId(null);
                               }}
-                              className="p-2 rounded text-red-500 hover:bg-red-950/50"
+                              className="sepela-icon-btn sepela-icon-btn--danger"
                               aria-label={`Delete ${customer.name}`}
                             >
                               <Trash2 size={16} />
@@ -417,44 +413,44 @@ export default function ClientManageModal({
             </Box>
 
             <Box className="min-w-0">
-              <Box className="bg-[#101010] border border-gray-800 rounded-xl h-full overflow-hidden">
-                <Box className="p-4 border-b border-gray-800">
-                  <h4 className="font-bold flex items-center gap-2">
-                    <FileText className="text-cyan-400" size={18} />
+              <Box className="sepela-subpanel h-full">
+                <Box className="sepela-subpanel-header">
+                  <h4 className="sepela-section-title flex items-center gap-2">
+                    <FileText className="text-sepela-accent" size={18} />
                     {t("clients.statementTitle")}
                   </h4>
-                  <p className="text-[10px] text-gray-500 mt-1">
+                  <p className="sepela-hint mt-1">
                     {t("clients.statementSubtitle")}
                   </p>
                 </Box>
 
                 {!statementCustomer ? (
-                  <p className="p-4 text-sm text-gray-600">
+                  <p className="p-4 text-sm sepela-hint">
                     {t("clients.selectClient")}
                   </p>
                 ) : (
                   <Box className="p-4 space-y-4">
                     <Box className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                      <Stat label={t("common.client")} value={statementCustomer.name} />
+                      <Stat label={t("common.client")} value={formatDisplayTitle(statementCustomer.name)} />
                       <Stat
                         label={t("clients.invoicesLabel")}
                         value={String(statementSummary.invoiceCount)}
-                        accent="text-cyan-400"
+                        accent="sepela-stat__value--accent"
                       />
                       <Stat
                         label={t("clients.grossBilled")}
                         value={currency.formatPrimary(statementSummary.grossUSD)}
-                        accent="text-green-400"
+                        accent="text-emerald-400"
                       />
                       <Stat
                         label={t("clients.netSales")}
                         value={currency.formatPrimary(statementSummary.netUSD)}
-                        accent="text-blue-400"
+                        accent="text-sepela-accent"
                       />
                     </Box>
 
-                    <Box className="text-xs text-gray-500">
-                      {t("clients.period")} <span className="text-gray-300">{statementRangeLabel}</span>
+                    <Box className="text-xs sepela-text-secondary">
+                      {t("clients.period")} <span className="sepela-text-muted">{statementRangeLabel}</span>
                     </Box>
 
                     <Box className="grid grid-cols-1 sm:grid-cols-[1fr,1fr,auto] gap-2">
@@ -462,13 +458,13 @@ export default function ClientManageModal({
                         type="date"
                         value={statementFrom}
                         onChange={(e) => setStatementFrom(e.target.value)}
-                        className="bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 outline-none focus:border-cyan-500"
+                        className="sepela-input"
                       />
                       <input
                         type="date"
                         value={statementTo}
                         onChange={(e) => setStatementTo(e.target.value)}
-                        className="bg-[#0f0f0f] border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 outline-none focus:border-cyan-500"
+                        className="sepela-input"
                       />
                       <button
                         type="button"
@@ -476,15 +472,15 @@ export default function ClientManageModal({
                           setStatementFrom("");
                           setStatementTo("");
                         }}
-                        className="px-3 py-2 rounded border border-gray-700 text-xs font-bold uppercase tracking-wide text-gray-400 hover:text-white"
+                        className="sepela-btn-secondary text-xs"
                       >
                         {t("common.clear")}
                       </button>
                     </Box>
 
-                    <Box className="text-xs text-gray-500">
+                    <Box className="text-xs sepela-text-secondary">
                       {t("clients.lastInvoice")}{" "}
-                      <span className="text-gray-300">
+                      <span className="sepela-text-muted">
                         {statementLastSale
                           ? new Date(statementLastSale.timestamp).toLocaleString()
                           : t("clients.noInvoicesYet")}
@@ -495,7 +491,7 @@ export default function ClientManageModal({
                       <button
                         type="button"
                         onClick={handleCopyStatement}
-                        className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border border-gray-700 text-gray-200 hover:border-gray-500 flex items-center gap-2"
+                        className="sepela-btn-secondary text-xs flex items-center gap-2"
                       >
                         <Copy size={14} />
                         {t("reports.copySummary")}
@@ -503,7 +499,7 @@ export default function ClientManageModal({
                       <button
                         type="button"
                         onClick={handleOpenStatementWhatsApp}
-                        className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border border-green-700 bg-green-950/30 text-green-400 hover:border-green-500 flex items-center gap-2"
+                        className="sepela-btn-secondary text-xs flex items-center gap-2 text-emerald-400"
                       >
                         <MessageCircle size={14} />
                         {t("reports.openWhatsApp")}
@@ -511,7 +507,7 @@ export default function ClientManageModal({
                       <button
                         type="button"
                         onClick={handlePrintStatement}
-                        className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border border-blue-700 bg-blue-950/30 text-blue-400 hover:border-blue-500 flex items-center gap-2"
+                        className="sepela-btn-secondary text-xs flex items-center gap-2 text-sepela-accent"
                       >
                         <Printer size={14} />
                         {t("invoiceModal.print")}
@@ -519,25 +515,25 @@ export default function ClientManageModal({
                       <button
                         type="button"
                         onClick={handleSaveStatementPdf}
-                        className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border border-emerald-700 bg-emerald-950/30 text-emerald-400 hover:border-emerald-500 flex items-center gap-2"
+                        className="sepela-btn-secondary text-xs flex items-center gap-2 text-emerald-400"
                       >
                         <Download size={14} />
                         PDF
                       </button>
                     </Box>
 
-                    <pre className="bg-[#0f0f0f] border border-gray-800 rounded-lg p-4 text-xs text-gray-300 whitespace-pre-wrap wrap-break-word font-mono">
+                    <pre className="sepela-panel text-xs text-sepela-muted whitespace-pre-wrap wrap-break-word font-mono">
                       {statementText}
                     </pre>
 
                     {statementSales.length === 0 ? (
-                      <p className="text-sm text-gray-600 py-6 text-center">
+                      <p className="text-sm sepela-hint py-6 text-center">
                         {t("clients.noInvoicesForClient")}
                       </p>
                     ) : (
-                      <Box className="border border-gray-800 rounded-lg overflow-hidden">
-                        <table className="w-full text-left text-sm">
-                          <thead className="text-[10px] uppercase text-gray-500 border-b border-gray-800 bg-[#151515]">
+                      <Box className="sepela-subpanel overflow-hidden">
+                        <table className="sepela-table text-sm">
+                          <thead>
                             <tr>
                               <th className="p-3">{t("invoices.columnInvoice")}</th>
                               <th className="p-3">{t("invoices.columnWhen")}</th>
@@ -547,18 +543,18 @@ export default function ClientManageModal({
                           </thead>
                           <tbody>
                             {statementSales.map((sale) => (
-                              <tr key={sale.id} className="border-b border-gray-900">
+                              <tr key={sale.id} className="sepela-row-divider">
                                 <td className="p-3">
-                                  <span className="font-mono text-cyan-400">
+                                  <span className="font-mono text-sepela-accent">
                                     {sale.invoiceNumber ?? sale.id}
                                   </span>
                                   {sale.status === "refunded" && (
-                                    <span className="block text-[10px] text-red-400 uppercase mt-1">
+                                    <span className="sepela-badge block text-red-400 mt-1">
                                       {t("common.refunded")}
                                     </span>
                                   )}
                                 </td>
-                                <td className="p-3 text-xs text-gray-400">
+                                <td className="p-3 text-xs sepela-text-secondary">
                                   {new Date(sale.timestamp).toLocaleString()}
                                 </td>
                                 <td className="p-3 text-right font-bold">
@@ -568,7 +564,7 @@ export default function ClientManageModal({
                                   <button
                                     type="button"
                                     onClick={() => onViewInvoice?.(sale)}
-                                    className="text-[10px] font-bold uppercase text-blue-400 hover:underline"
+                                    className="sepela-link-btn"
                                   >
                                     {t("common.view")}
                                   </button>
@@ -583,9 +579,8 @@ export default function ClientManageModal({
                 )}
               </Box>
             </Box>
-          </Box>
-        </Box>
       </Box>
+    </ManagementScreen>
       {statementCustomer &&
         createPortal(
           <div
@@ -620,15 +615,15 @@ export default function ClientManageModal({
           </div>,
           document.body
         )}
-    </Box>
+  </>
   );
 }
 
 function Stat({ label, value, accent = "text-white" }) {
   return (
-    <Box className="rounded-lg border border-gray-800 bg-[#161616] p-3">
-      <p className="text-[10px] uppercase tracking-widest text-gray-500">{label}</p>
-      <p className={`mt-1 text-sm font-bold ${accent}`}>{value}</p>
+    <Box className="sepela-stat">
+      <p className="sepela-stat__label">{label}</p>
+      <p className={`sepela-stat__value ${accent}`}>{value}</p>
     </Box>
   );
 }

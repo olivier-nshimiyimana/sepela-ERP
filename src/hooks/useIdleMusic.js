@@ -12,11 +12,13 @@ export function useIdleMusic(active) {
   const audioRef = useRef(null);
   const idleTimerRef = useRef(null);
   const isPlayingRef = useRef(false);
-  const scheduleIdlePlayRef = useRef(() => {});
+  const activeRef = useRef(active);
   const [settings, setSettings] = useState(readIdleMusicSettings);
   const [isPlaying, setIsPlaying] = useState(false);
 
   const { enabled, volume, idleMinutes } = settings;
+
+  activeRef.current = active;
 
   const setPlaying = useCallback((value) => {
     isPlayingRef.current = value;
@@ -27,19 +29,24 @@ export function useIdleMusic(active) {
     setSettings(readIdleMusicSettings());
   }, []);
 
-  const setEnabled = useCallback((value) => {
-    writeIdleMusicSettings({ enabled: value });
-    if (!value && audioRef.current) {
-      audioRef.current.pause();
-      setPlaying(false);
-    }
-  }, [setPlaying]);
+  const setEnabled = useCallback(
+    (value) => {
+      writeIdleMusicSettings({ enabled: value });
+      if (!value && audioRef.current) {
+        audioRef.current.pause();
+        setPlaying(false);
+      }
+    },
+    [setPlaying]
+  );
 
   const setVolume = useCallback((value) => {
-    writeIdleMusicSettings({ volume: value });
+    const next = Math.min(1, Math.max(0, Number(value)));
+    writeIdleMusicSettings({ volume: next });
     if (audioRef.current) {
-      audioRef.current.volume = Math.min(1, Math.max(0, Number(value)));
+      audioRef.current.volume = next;
     }
+    setSettings((prev) => ({ ...prev, volume: next }));
   }, []);
 
   const clearIdleTimer = useCallback(() => {
@@ -56,14 +63,11 @@ export function useIdleMusic(active) {
       audio.loop = true;
       audioRef.current = audio;
       audio.addEventListener("ended", () => setPlaying(false));
-      audio.addEventListener("pause", () => {
-        if (audio.paused) setPlaying(false);
-      });
       audio.addEventListener("play", () => setPlaying(true));
     }
-    audio.volume = volume;
+    audio.volume = readIdleMusicSettings().volume;
     return audio;
-  }, [setPlaying, volume]);
+  }, [setPlaying]);
 
   const stopMusic = useCallback(
     ({ resetPosition = false } = {}) => {
@@ -91,23 +95,23 @@ export function useIdleMusic(active) {
 
   const scheduleIdlePlay = useCallback(() => {
     clearIdleTimer();
-    if (!active || !enabled || isPlayingRef.current) return;
+    const { enabled: isEnabled, idleMinutes: minutes } = readIdleMusicSettings();
+    if (!activeRef.current || !isEnabled || isPlayingRef.current) return;
 
-    const delayMs = idleMinutes * 60 * 1000;
+    const delayMs = minutes * 60 * 1000;
     idleTimerRef.current = setTimeout(async () => {
-      if (!enabled || !active || isPlayingRef.current) return;
+      const latest = readIdleMusicSettings();
+      if (!latest.enabled || !activeRef.current || isPlayingRef.current) return;
       await playMusic();
     }, delayMs);
-  }, [active, clearIdleTimer, enabled, idleMinutes, playMusic]);
-
-  scheduleIdlePlayRef.current = scheduleIdlePlay;
+  }, [clearIdleTimer, playMusic]);
 
   const pausePlayback = useCallback(() => {
     stopMusic();
-    if (active && enabled) {
-      scheduleIdlePlayRef.current();
+    if (activeRef.current && readIdleMusicSettings().enabled) {
+      scheduleIdlePlay();
     }
-  }, [active, enabled, stopMusic]);
+  }, [scheduleIdlePlay, stopMusic]);
 
   const playPlayback = useCallback(() => {
     void playMusic();
@@ -122,9 +126,9 @@ export function useIdleMusic(active) {
   }, [pausePlayback, playPlayback]);
 
   const handleActivity = useCallback(() => {
-    if (!active || isPlayingRef.current) return;
+    if (!activeRef.current || isPlayingRef.current) return;
     scheduleIdlePlay();
-  }, [active, scheduleIdlePlay]);
+  }, [scheduleIdlePlay]);
 
   useEffect(() => {
     reloadSettings();
@@ -133,9 +137,16 @@ export function useIdleMusic(active) {
   }, [reloadSettings]);
 
   useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
+
+  useEffect(() => {
     if (!active) {
       clearIdleTimer();
       stopMusic({ resetPosition: true });
+      audioRef.current = null;
       return undefined;
     }
 
@@ -150,28 +161,23 @@ export function useIdleMusic(active) {
         window.removeEventListener(event, handleActivity);
       }
       stopMusic({ resetPosition: true });
-      if (audioRef.current) {
-        audioRef.current = null;
-      }
+      audioRef.current = null;
     };
-  }, [active, clearIdleTimer, handleActivity, scheduleIdlePlay, stopMusic]);
+    // Only tear down audio when active toggles — not when volume/schedule callbacks change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = volume;
-    }
-  }, [volume]);
-
-  useEffect(() => {
+    if (!active) return;
     if (!enabled) {
       clearIdleTimer();
       stopMusic();
       return;
     }
-    if (active && !isPlayingRef.current) {
+    if (!isPlayingRef.current) {
       scheduleIdlePlay();
     }
-  }, [active, clearIdleTimer, enabled, idleMinutes, scheduleIdlePlay, stopMusic]);
+  }, [active, enabled, idleMinutes, clearIdleTimer, scheduleIdlePlay, stopMusic]);
 
   return {
     enabled,

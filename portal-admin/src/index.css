@@ -30,6 +30,10 @@ body {
   overflow-x: hidden;
 }
 
+body:has(.portal-login) {
+  overflow: hidden;
+}
+
 #root {
   width: min(100vw - 16px, 100%);
   max-width: none;
@@ -37,6 +41,12 @@ body {
   padding: 8px 0 12px;
   min-height: 100dvh;
   box-sizing: border-box;
+}
+
+#root:has(.portal-login) {
+  padding: 0;
+  width: 100%;
+  margin: 0;
 }
 
 a {

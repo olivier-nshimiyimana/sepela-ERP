@@ -1,5 +1,7 @@
 import en from "./locales/en";
 import fr from "./locales/fr";
+import { formatEnglishUiText } from "../utils/uiText";
+import { PLATFORM_COMPANY_NAME } from "../data/platformBranding";
 
 export const LOCALES = {
   FR: "fr",
@@ -39,6 +41,21 @@ export function periodLabel(period, locale = DEFAULT_LOCALE) {
   return translate(map[period] ?? "reports.periodDaily", locale);
 }
 
+const REPORT_PERIOD_PRESET_KEYS = {
+  today: "reports.periodPresetToday",
+  yesterday: "reports.periodPresetYesterday",
+  this_week: "reports.periodPresetThisWeek",
+  last_week: "reports.periodPresetLastWeek",
+  this_month: "reports.periodPresetThisMonth",
+  last_month: "reports.periodPresetLastMonth",
+  this_year: "reports.periodPresetThisYear",
+  last_year: "reports.periodPresetLastYear",
+};
+
+export function reportPeriodPresetLabel(preset, locale = DEFAULT_LOCALE) {
+  return translate(REPORT_PERIOD_PRESET_KEYS[preset] ?? preset, locale);
+}
+
 export function paymentMethodLabel(methodId, locale = DEFAULT_LOCALE) {
   const map = {
     cash: "payment.cash",
@@ -73,9 +90,14 @@ export function translate(key, locale = DEFAULT_LOCALE, params = {}) {
     text = resolvePath(catalogs[LOCALES.EN], key);
   }
   if (typeof text !== "string") return key;
-  return text.replace(/\{\{(\w+)\}\}/g, (_, name) =>
+  let out = text.replace(/\{\{(\w+)\}\}/g, (_, name) =>
     params[name] !== undefined && params[name] !== null ? String(params[name]) : ""
   );
+  out = out.replace(/SEPELA INC/gi, PLATFORM_COMPANY_NAME);
+  if (normalizeLocale(locale) === LOCALES.EN) {
+    out = formatEnglishUiText(out);
+  }
+  return out;
 }
 
 export function appError(key, locale = DEFAULT_LOCALE, params = {}) {
@@ -151,9 +173,9 @@ const ERROR_STRING_MAP = {
     "login.invalidApiToken",
   "Invalid username or password. If this account was edited in portal-admin, use the latest password.":
     "login.invalidCredentialsPortal",
-  "Your store is not activated or your license has expired. Please contact SEPELA INC for assistance.":
+  "Your store is not activated or your license has expired. Please contact Sepela Inc. for assistance.":
     "login.activationSupport",
-  "This terminal is not configured for cloud access. Please contact SEPELA INC.":
+  "This terminal is not configured for cloud access. Please contact Sepela Inc.":
     "login.terminalNotConfigured",
 };
 

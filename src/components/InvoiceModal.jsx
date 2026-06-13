@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Copy, Download, Printer, X } from "lucide-react";
+import { Copy, Download, Mail, Printer, X } from "lucide-react";
 import InvoicePrintBody from "./InvoicePrintBody";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { useLocale } from "../contexts/LocaleContext";
+import { useNotification } from "../contexts/NotificationContext";
 import { formatInvoicePlainText } from "../utils/invoiceText";
 import {
   getInvoiceFormat,
   getInvoiceFormatLabel,
   getInvoicePageCssSize,
-  getInvoicePdfFormat,
   INVOICE_FORMATS,
 } from "../utils/invoiceFormats";
 import { invoicePrintStylesheet, invoiceWidthPx } from "../utils/invoiceCapture";
-import { saveInvoiceAsPdf } from "../utils/domPdf";
+import { saveInvoiceVectorPdf } from "../utils/invoiceVectorPdf";
+import { formatPdfSaveError } from "../utils/savePdfDocument";
+import { shareInvoiceByEmail } from "../utils/shareInvoiceEmail";
 
 const Box = "d" + "iv";
 
@@ -27,6 +29,7 @@ export default function InvoiceModal({
 }) {
   const { primaryCurrency, exchangeRate } = useCurrency();
   const { t, locale } = useLocale();
+  const { notifySuccess, notifyError } = useNotification();
   const previewRef = useRef(null);
   const captureRef = useRef(null);
   const [selectedFormat, setSelectedFormat] = useState(
@@ -117,25 +120,63 @@ export default function InvoiceModal({
     }
   };
 
-  const handleSavePdf = async () => {
-    const node = getCaptureRoot();
-    if (!node) return;
+  const handleShareEmail = async () => {
     try {
-      const raw = String(sale.invoiceNumber ?? sale.id ?? "invoice");
-      const safe = raw.replace(/[/\\:*?"<>|]/g, "-").trim().slice(0, 120) || "invoice";
-      await saveInvoiceAsPdf(node, safe, { format: getInvoicePdfFormat(format.id) });
-      alert(t("invoiceModal.pdfSaved"));
+      const result = await shareInvoiceByEmail({
+        sale,
+        profile: invoiceProfile,
+        receiptContext,
+        promotions,
+        primaryCurrency,
+        exchangeRate,
+        locale,
+        formatId: format.id,
+      });
+      if (result.cancelled) {
+        notifyError(t("notification.emailCancelled"));
+        return;
+      }
+      if (result.pdfPath) {
+        notifySuccess(t("notification.emailOpened", { path: result.pdfPath }));
+      } else {
+        notifySuccess(t("notification.emailOpenedSimple"));
+      }
     } catch (e) {
       console.error(e);
-      alert(t("invoiceModal.pdfFailed", { error: e?.message ?? e }));
+      notifyError(t("invoiceModal.emailFailed", { error: e?.message ?? e }));
     }
   };
 
-  return (
-    <Box className="absolute inset-0 z-60 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 overflow-y-auto">
-      <Box className="bg-[#1a1a1a] border border-gray-800 w-full max-w-4xl rounded-xl shadow-2xl flex flex-col max-h-[95vh]">
-        <Box className="p-3 border-b border-gray-800 flex justify-between items-center shrink-0">
-          <span className="font-bold text-white">
+  const handleSavePdf = async () => {
+    try {
+      const raw = String(sale.invoiceNumber ?? sale.id ?? "invoice");
+      const safe = raw.replace(/[/\\:*?"<>|]/g, "-").trim().slice(0, 120) || "invoice";
+      const savedPath = await saveInvoiceVectorPdf({
+        sale,
+        profile: invoiceProfile,
+        receiptContext,
+        promotions,
+        primaryCurrency,
+        exchangeRate,
+        locale,
+        formatId: format.id,
+        filename: safe,
+        dialogTitle: t("notification.invoicePdfSaveTitle"),
+      });
+      if (!savedPath) return;
+      notifySuccess(t("notification.documentSaved", { path: savedPath }));
+    } catch (e) {
+      console.error(e);
+      const formatted = formatPdfSaveError(e);
+      notifyError(t(formatted.key, formatted.params));
+    }
+  };
+
+  const modal = (
+    <Box className="sepela-modal-overlay sepela-modal-overlay--fullscreen">
+      <Box className="sepela-modal sepela-modal--fullscreen">
+        <Box className="sepela-modal-header shrink-0">
+          <span className="sepela-modal-title">
             {receiptContext?.receiptType === "COPY" ? t("invoiceModal.copyPrefix") : ""}
             {receiptContext?.receiptType === "PROFORMA" ? t("invoiceModal.proformaPrefix") : ""}
             {receiptContext?.receiptType === "TRAINING" ? t("invoiceModal.trainingPrefix") : ""}
@@ -145,7 +186,7 @@ export default function InvoiceModal({
             <select
               value={selectedFormat}
               onChange={(e) => setSelectedFormat(e.target.value)}
-              className="bg-[#0a0a0a] border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200"
+              className="sepela-input text-xs !py-1.5 !w-auto"
             >
               {INVOICE_FORMATS.map((f) => (
                 <option key={f.id} value={f.id}>
@@ -156,30 +197,38 @@ export default function InvoiceModal({
             <button
               type="button"
               onClick={handleCopy}
-              className="flex items-center gap-1 px-3 py-1.5 rounded border border-gray-600 text-xs font-bold uppercase text-gray-300 hover:bg-gray-800"
+              className="sepela-btn-secondary text-xs"
             >
               <Copy size={14} /> {t("invoiceModal.copy")}
             </button>
             <button
               type="button"
               onClick={handlePrint}
-              className="flex items-center gap-1 px-3 py-1.5 rounded bg-blue-600 text-xs font-bold uppercase hover:bg-blue-700"
+              className="sepela-btn-primary !w-auto flex items-center gap-1 text-xs px-3 py-1.5"
             >
               <Printer size={14} /> {t("invoiceModal.print")}
             </button>
             <button
               type="button"
+              onClick={handleShareEmail}
+              className="sepela-btn-secondary text-xs"
+              title={sale.customerEmail ? sale.customerEmail : t("invoiceModal.email")}
+            >
+              <Mail size={14} /> {t("invoiceModal.email")}
+            </button>
+            <button
+              type="button"
               onClick={handleSavePdf}
-              className="flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-600 text-xs font-bold uppercase hover:bg-emerald-700"
+              className="sepela-btn-secondary text-xs"
             >
               <Download size={14} /> PDF
             </button>
-            <button type="button" onClick={onClose} className="p-2 text-gray-400 hover:text-white" aria-label={t("common.close")}>
-              <X size={20} />
+            <button type="button" onClick={onClose} className="text-sepela-muted hover:text-white shrink-0" aria-label={t("common.close")}>
+              <X size={22} />
             </button>
           </Box>
         </Box>
-        <Box className="overflow-y-auto flex-1 p-2 bg-gray-300">
+        <Box className="sepela-modal-body sepela-scroll flex-1 p-4 bg-[#383838]">
           <div ref={previewRef} style={sheetStyle}>
             {invoiceBody}
           </div>
@@ -207,4 +256,6 @@ export default function InvoiceModal({
       )}
     </Box>
   );
+
+  return typeof document !== "undefined" ? createPortal(modal, document.body) : modal;
 }

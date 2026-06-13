@@ -174,4 +174,45 @@ CREATE TABLE IF NOT EXISTS operator_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_operators_merchant ON operators(merchant_id);
 CREATE INDEX IF NOT EXISTS idx_operator_sessions_operator ON operator_sessions(operator_id);
+
+CREATE TABLE IF NOT EXISTS portal_admins (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'admin',
+  password_salt TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  last_login_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS portal_admin_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_id UUID NOT NULL REFERENCES portal_admins(id) ON DELETE CASCADE,
+  session_token TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_portal_admin_sessions_admin ON portal_admin_sessions(admin_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_portal_admins_username_lower ON portal_admins (LOWER(username));
+
+CREATE TABLE IF NOT EXISTS portal_admin_audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_id UUID REFERENCES portal_admins(id) ON DELETE SET NULL,
+  admin_username TEXT,
+  action TEXT NOT NULL,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,
+  target_type TEXT,
+  target_id TEXT,
+  ip_address TEXT,
+  status_code INTEGER,
+  details JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_portal_audit_created ON portal_admin_audit_log(created_at DESC);
 `;

@@ -10,9 +10,11 @@ import {
 import {
   DEFAULT_PRIMARY_CURRENCY,
   formatDualCurrency,
+  formatSaleChange,
   normalizePrimaryCurrency,
   saleExchangeRate,
 } from "./currency";
+import { lineTotalUsd } from "./moneyRounding";
 import {
   RECEIPT_TYPES,
   TRANSACTION_TYPES,
@@ -29,7 +31,9 @@ import {
 } from "./receiptText";
 import {
   saleAppliedPromotionName,
+  saleGrossSubtotalUsd,
   saleItemsSubtotalUsd,
+  saleManualDiscountUsd,
   salePromotionDiscountUsd,
 } from "./saleTotals";
 
@@ -170,7 +174,7 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
   push(thin);
 
   for (const it of sale.items ?? []) {
-    const sub = (it.price ?? 0) * (it.qty ?? 0);
+    const sub = lineTotalUsd(it.price, it.qty);
     const amountLabel = formatDualCurrency(sub, saleRate, primary).primary;
     push(formatReceiptItemLine(it.qty, it.name, sub, width, amountLabel));
     if (it.lotNumber) {
@@ -187,7 +191,8 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
   }
 
   push(thin);
-  const subtotalUSD = saleItemsSubtotalUsd(sale);
+  const manualDiscountUSD = saleManualDiscountUsd(sale);
+  const subtotalUSD = manualDiscountUSD > 0.001 ? saleGrossSubtotalUsd(sale) : saleItemsSubtotalUsd(sale);
   const promotionDiscountUSD = salePromotionDiscountUsd(sale);
   const totalUSD = Number(sale.totalUSD) || 0;
   const promotionName = saleAppliedPromotionName(sale, ctx.promotions ?? []);
@@ -200,6 +205,11 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
       width
     )
   );
+
+  if (manualDiscountUSD > 0.001) {
+    const manualDual = formatDualCurrency(manualDiscountUSD, saleRate, primary);
+    push(labelValue(t("receipt.manualDiscount"), `-${manualDual.primary}`, width));
+  }
 
   if (promotionDiscountUSD > 0.001) {
     const discountDual = formatDualCurrency(promotionDiscountUSD, saleRate, primary);
@@ -221,9 +231,9 @@ export function formatInvoicePlainText(sale, profile, ctx = {}, width = RECEIPT_
     if (sale.cardLastFour) {
       push(labelValue(t("receipt.card"), `****${sale.cardLastFour}`, width));
     }
-    if (sale.changeDueUSD > 0) {
-      const changeDual = formatDualCurrency(sale.changeDueUSD, saleRate, primary);
-      push(labelValue(t("receipt.changePrimary", { currency: changeDual.primaryCode }), changeDual.primary, width));
+    const change = formatSaleChange(sale, saleRate, primary);
+    if (change.changePrimary > 0) {
+      push(labelValue(t("receipt.changePrimary", { currency: primary }), change.primary, width));
     }
   }
 

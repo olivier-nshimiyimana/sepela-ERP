@@ -203,7 +203,7 @@ function Stat({ label, value }) {
         background: "#ffffff",
       }}
     >
-      <div style={{ color: "#6b7280", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+      <div style={{ color: "#6b7280", fontSize: 10, letterSpacing: "0.02em" }}>
         {label}
       </div>
       <div style={{ marginTop: 6, fontSize: 18, fontWeight: 700 }}>{value}</div>
@@ -223,8 +223,7 @@ function thStyle(compact) {
     padding: compact ? "8px 10px" : "10px 12px",
     textAlign: "left",
     fontSize: compact ? 10 : 11,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
+    letterSpacing: "0.02em",
   };
 }
 

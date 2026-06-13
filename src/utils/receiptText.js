@@ -1,3 +1,5 @@
+import { formatMoneyUSD } from "./formatMoney";
+
 /** Fixed width for thermal/plain-text receipts (42 = common 80mm paper). */
 export const RECEIPT_WIDTH = 42;
 
@@ -69,7 +71,7 @@ export function formatReceiptItemLine(qty, name, lineTotalUsd, width = RECEIPT_W
   const nameCol = width - qtyCol - amtCol - 2;
   const qtyStr = padStart(String(qty), qtyCol);
   const amtStr = padStart(
-    amountLabel ?? `$${Number(lineTotalUsd).toFixed(2)}`,
+    amountLabel ?? formatMoneyUSD(lineTotalUsd),
     amtCol
   );
   const nameStr = padEnd(String(name).slice(0, nameCol), nameCol);

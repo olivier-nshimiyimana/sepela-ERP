@@ -1,3 +1,5 @@
+import { PLATFORM_PRODUCT_NAME } from "../data/platformBranding";
+
 export const BACKUP_FORMAT_VERSION = 1;
 
 export function buildAppBackup({ users = [], data = {} } = {}) {
@@ -24,7 +26,7 @@ export function validateAppBackup(payload) {
   }
 
   if (payload.app !== "sepela-erp-system") {
-    return { ok: false, error: "This backup file does not belong to Sepela ERP." };
+    return { ok: false, error: `This backup file does not belong to ${PLATFORM_PRODUCT_NAME}.` };
   }
 
   if (payload.formatVersion !== BACKUP_FORMAT_VERSION) {

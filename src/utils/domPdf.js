@@ -1,4 +1,5 @@
 import { buildInvoiceHtml2CanvasOptions } from "./invoiceCapture";
+import { savePdfDocument } from "./savePdfDocument";
 
 function defaultHtml2CanvasOptions(node) {
   return {
@@ -60,13 +61,7 @@ export async function saveNodeAsPdf(
     heightLeft -= pageHeight;
   }
 
-  const safe =
-    String(filename ?? "invoice")
-      .replace(/[/\\:*?"<>|]/g, "-")
-      .trim()
-      .slice(0, 120) || "invoice";
-
-  pdf.save(`${safe}.pdf`);
+  return savePdfDocument(pdf, filename ?? "invoice");
 }
 
 export function saveInvoiceAsPdf(node, filename, { format = "a4" } = {}) {

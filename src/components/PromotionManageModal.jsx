@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Pencil, Plus, Tag, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Tag, Trash2 } from "lucide-react";
+import ManagementScreen from "./ManagementScreen";
 import {
   PROMOTION_DISCOUNT_TYPE,
   PROMOTION_TARGET_SCOPE,
@@ -70,6 +71,10 @@ function fieldsFromPromotion(initial, currency) {
       discountType === PROMOTION_DISCOUNT_TYPE.FIXED_AMOUNT
         ? usdToPromotionMoneyInput(initial?.discountValue, currency)
         : initial?.discountValue?.toString() ?? "",
+    discountFreeQty:
+      discountType === PROMOTION_DISCOUNT_TYPE.BUY_X_GET_Y
+        ? initial?.discountFreeQty?.toString() ?? ""
+        : "",
     clientTier: initial?.clientTier ?? "",
     minOrderAmount: usdToPromotionMoneyInput(initial?.minOrderAmount, currency),
     startDate: initial?.startDate
@@ -106,31 +111,31 @@ function CategoryForm({ onSave, onCancel }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-3 bg-[#0f0f0f] rounded-lg border border-gray-800 space-y-2">
-      <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">{t("promotions.addCategory")}</p>
+    <form onSubmit={handleSubmit} className="sepela-panel space-y-2">
+      <p className="sepela-label">{t("promotions.addCategory")}</p>
       <Box className="grid grid-cols-2 gap-2">
         <input
           type="text"
           placeholder={t("promotions.categoryName")}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+          className="sepela-input"
         />
         <input
           type="text"
           placeholder={t("promotions.categoryCode")}
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:border-amber-500 outline-none"
+          className="sepela-input font-mono"
         />
       </Box>
       {error && <p className="text-red-400 text-xs">{tError(error)}</p>}
       <Box className="flex gap-2">
-        <button type="submit" className="flex-1 bg-amber-700 hover:bg-amber-600 py-2 rounded text-xs font-bold uppercase">
+        <button type="submit" className="sepela-btn-primary flex-1 text-xs">
           {t("common.save")}
         </button>
         {onCancel && (
-          <button type="button" onClick={onCancel} className="px-3 py-2 text-xs border border-gray-700 rounded text-gray-400">
+          <button type="button" onClick={onCancel} className="sepela-btn-secondary text-xs">
             {t("common.cancel")}
           </button>
         )}
@@ -145,6 +150,7 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
   const [fields, setFields] = useState(() => fieldsFromPromotion(initial, currency));
   const [error, setError] = useState("");
   const isFixedDiscount = fields.discountType === PROMOTION_DISCOUNT_TYPE.FIXED_AMOUNT;
+  const isBuyXGetY = fields.discountType === PROMOTION_DISCOUNT_TYPE.BUY_X_GET_Y;
 
   const set = (key) => (e) => {
     const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
@@ -159,6 +165,10 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
       fields.discountType === PROMOTION_DISCOUNT_TYPE.FIXED_AMOUNT
         ? currency.inputToUsd(fields.discountValue)
         : Number(fields.discountValue);
+    const discountFreeQty =
+      fields.discountType === PROMOTION_DISCOUNT_TYPE.BUY_X_GET_Y
+        ? Number(fields.discountFreeQty)
+        : null;
     const validated = validatePromotionFields(
       {
         ...fields,
@@ -167,6 +177,7 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
         endDate: fromDatetimeLocalValue(fields.endDate),
         minOrderAmount: minOrderUsd,
         discountValue,
+        discountFreeQty,
       },
       locale
     );
@@ -184,19 +195,19 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 p-3 bg-[#0f0f0f] rounded-lg border border-gray-800">
-      <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">{saveLabel}</p>
+    <form onSubmit={handleSubmit} className="space-y-3 sepela-panel">
+      <p className="sepela-label">{saveLabel}</p>
       <input
         type="text"
         placeholder={t("promotions.name")}
         value={fields.name}
         onChange={set("name")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+        className="sepela-input"
       />
       <select
         value={fields.targetScope}
         onChange={set("targetScope")}
-        className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+        className="sepela-input"
       >
         <option value={PROMOTION_TARGET_SCOPE.ALL_PRODUCTS}>{t("promotions.scopeAllProducts")}</option>
         <option value={PROMOTION_TARGET_SCOPE.SPECIFIC_CATEGORY}>{t("promotions.scopeCategory")}</option>
@@ -206,7 +217,7 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
         <select
           value={fields.categoryId}
           onChange={set("categoryId")}
-          className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+          className="sepela-input"
         >
           <option value="">{t("promotions.selectCategory")}</option>
           {productCategories.map((cat) => (
@@ -220,7 +231,7 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
         <select
           value={fields.productId}
           onChange={set("productId")}
-          className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+          className="sepela-input"
         >
           <option value="">{t("promotions.selectProduct")}</option>
           {products.map((product) => (
@@ -232,21 +243,47 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
           ))}
         </select>
       )}
-      <Box className="grid grid-cols-2 gap-2">
-        <select
-          value={fields.discountType}
-          onChange={(e) => {
-            setFields((prev) => ({
-              ...prev,
-              discountType: e.target.value,
-              discountValue: "",
-            }));
-          }}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
-        >
-          <option value={PROMOTION_DISCOUNT_TYPE.PERCENTAGE}>{t("promotions.discountPercentage")}</option>
-          <option value={PROMOTION_DISCOUNT_TYPE.FIXED_AMOUNT}>{t("promotions.discountFixed")}</option>
-        </select>
+      <select
+        value={fields.discountType}
+        onChange={(e) => {
+          setFields((prev) => ({
+            ...prev,
+            discountType: e.target.value,
+            discountValue: "",
+            discountFreeQty: "",
+          }));
+        }}
+        className="sepela-input"
+      >
+        <option value={PROMOTION_DISCOUNT_TYPE.PERCENTAGE}>{t("promotions.discountPercentage")}</option>
+        <option value={PROMOTION_DISCOUNT_TYPE.FIXED_AMOUNT}>{t("promotions.discountFixed")}</option>
+        <option value={PROMOTION_DISCOUNT_TYPE.BUY_X_GET_Y}>{t("promotions.discountBuyXGetY")}</option>
+      </select>
+      {isBuyXGetY ? (
+        <Box className="space-y-2">
+          <p className="text-[10px] sepela-text-secondary">{t("promotions.buyXGetYHint")}</p>
+          <Box className="grid grid-cols-2 gap-2">
+            <input
+              type="number"
+              min="1"
+              step="1"
+              placeholder={t("promotions.buyQtyPlaceholder")}
+              value={fields.discountValue}
+              onChange={set("discountValue")}
+              className="sepela-input"
+            />
+            <input
+              type="number"
+              min="1"
+              step="1"
+              placeholder={t("promotions.freeQtyPlaceholder")}
+              value={fields.discountFreeQty}
+              onChange={set("discountFreeQty")}
+              className="sepela-input"
+            />
+          </Box>
+        </Box>
+      ) : (
         <input
           type="number"
           min="0"
@@ -259,16 +296,16 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
           }
           value={fields.discountValue}
           onChange={set("discountValue")}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+          className="sepela-input"
         />
-      </Box>
+      )}
       <Box className="grid grid-cols-2 gap-2">
         <input
           type="text"
           placeholder={t("promotions.clientTierOptional")}
           value={fields.clientTier}
           onChange={set("clientTier")}
-          className="bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+          className="sepela-input"
         />
         <Box>
           <input
@@ -278,42 +315,42 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
             placeholder={currency.fieldLabel(t("promotions.minOrderAmount"))}
             value={fields.minOrderAmount}
             onChange={set("minOrderAmount")}
-            className="w-full bg-[#1a1a1a] border border-gray-700 rounded px-3 py-2 text-sm focus:border-amber-500 outline-none"
+            className="sepela-input"
           />
-          <p className="text-[10px] text-gray-600 mt-1">{t("promotions.minOrderHint")}</p>
+          <p className="text-[10px] sepela-hint mt-1">{t("promotions.minOrderHint")}</p>
         </Box>
       </Box>
       <Box className="grid grid-cols-2 gap-2">
-        <label className="text-xs text-gray-400">
+        <label className="text-xs sepela-text-muted">
           {t("promotions.startDate")}
           <input
             type="datetime-local"
             value={fields.startDate}
             onChange={set("startDate")}
-            className="mt-1 w-full bg-[#1a1a1a] border border-gray-700 rounded px-2 py-2 text-sm focus:border-amber-500 outline-none"
+            className="mt-1 sepela-input"
           />
         </label>
-        <label className="text-xs text-gray-400">
+        <label className="text-xs sepela-text-muted">
           {t("promotions.endDate")}
           <input
             type="datetime-local"
             value={fields.endDate}
             onChange={set("endDate")}
-            className="mt-1 w-full bg-[#1a1a1a] border border-gray-700 rounded px-2 py-2 text-sm focus:border-amber-500 outline-none"
+            className="mt-1 sepela-input"
           />
         </label>
       </Box>
-      <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-        <input type="checkbox" checked={fields.isActive} onChange={set("isActive")} className="rounded border-gray-600" />
+      <label className="flex items-center gap-2 text-sm sepela-text-muted cursor-pointer">
+        <input type="checkbox" checked={fields.isActive} onChange={set("isActive")} className="sepela-checkbox" />
         {t("promotions.isActive")}
       </label>
       {error && <p className="text-red-400 text-xs">{tError(error)}</p>}
       <Box className="flex gap-2">
-        <button type="submit" className="flex-1 bg-amber-600 hover:bg-amber-700 py-2 rounded text-sm font-bold uppercase">
+        <button type="submit" className="sepela-btn-primary flex-1">
           {t("common.save")}
         </button>
         {onCancel && (
-          <button type="button" onClick={onCancel} className="px-4 py-2 rounded text-sm border border-gray-700 text-gray-400 hover:text-white">
+          <button type="button" onClick={onCancel} className="sepela-btn-secondary">
             {t("common.cancel")}
           </button>
         )}
@@ -325,13 +362,13 @@ function PromotionForm({ initial, productCategories, products, onSave, onCancel,
 function StatusBadge({ promotion, t }) {
   const key = promotionStatusKey(promotion);
   const colors = {
-    live: "bg-green-900/50 text-green-400 border-green-800",
-    scheduled: "bg-blue-900/50 text-blue-400 border-blue-800",
-    expired: "bg-gray-800 text-gray-500 border-gray-700",
-    inactive: "bg-gray-800 text-gray-500 border-gray-700",
+    live: "bg-emerald-900/40 text-emerald-400",
+    scheduled: "bg-sepela-accent/20 text-sepela-accent",
+    expired: "bg-sepela-elevated text-sepela-muted",
+    inactive: "bg-sepela-elevated text-sepela-muted",
   };
   return (
-    <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${colors[key] ?? colors.inactive}`}>
+    <span className={`sepela-badge px-2 py-0.5 ${colors[key] ?? colors.inactive}`}>
       {t(`promotions.status.${key}`)}
     </span>
   );
@@ -375,30 +412,22 @@ export default function PromotionManageModal({
   const editingPromotion = editingId ? promotions.find((p) => p.id === editingId) : null;
 
   return (
-    <Box className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <Box className="bg-[#1a1a1a] border border-gray-800 w-full max-w-2xl rounded-xl shadow-2xl max-h-[90vh] flex flex-col overflow-hidden">
-        <Box className="p-4 border-b border-gray-800 flex justify-between items-center shrink-0">
-          <Box>
-            <h2 className="font-bold flex items-center gap-2 text-amber-400">
-              <Tag size={20} />
-              {t("promotions.title")}
-            </h2>
-            <p className="text-xs text-gray-500 mt-1">{t("promotions.subtitle")}</p>
-          </Box>
-          <button type="button" onClick={handleClose} aria-label={t("common.close")}>
-            <X size={20} />
-          </button>
-        </Box>
-
-        <Box className="flex-1 overflow-y-auto p-4 space-y-4">
+    <ManagementScreen
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={t("promotions.title")}
+      icon={Tag}
+      subtitle={t("promotions.subtitle")}
+    >
+      <Box className="space-y-4">
           <Box className="space-y-2">
             <Box className="flex items-center justify-between">
-              <p className="text-xs font-bold text-amber-500/80 uppercase tracking-widest">{t("promotions.categoriesTitle")}</p>
+              <p className="sepela-label">{t("promotions.categoriesTitle")}</p>
               {!showCategoryForm && (
                 <button
                   type="button"
                   onClick={() => setShowCategoryForm(true)}
-                  className="text-[10px] font-bold uppercase text-amber-400 border border-amber-900 px-2 py-1 rounded hover:bg-amber-950/40"
+                  className="sepela-btn-secondary text-[10px]"
                 >
                   + {t("promotions.addCategory")}
                 </button>
@@ -413,13 +442,13 @@ export default function PromotionManageModal({
             {productCategories.length > 0 ? (
               <Box className="flex flex-wrap gap-2">
                 {productCategories.map((cat) => (
-                  <span key={cat.id} className="text-xs px-2 py-1 rounded border border-gray-700 text-gray-300">
-                    {cat.name} <span className="text-gray-500 font-mono">({cat.code})</span>
+                  <span key={cat.id} className="sepela-chip">
+                    {cat.name} <span className="sepela-text-secondary font-mono">({cat.code})</span>
                   </span>
                 ))}
               </Box>
             ) : (
-              <p className="text-xs text-gray-600">{t("promotions.noCategories")}</p>
+              <p className="text-xs sepela-hint">{t("promotions.noCategories")}</p>
             )}
           </Box>
 
@@ -427,7 +456,7 @@ export default function PromotionManageModal({
             <button
               type="button"
               onClick={() => setShowAddForm(true)}
-              className="w-full border border-dashed border-amber-800 text-amber-400 py-3 rounded-lg text-sm font-bold uppercase flex items-center justify-center gap-2 hover:bg-amber-950/30"
+              className="sepela-dashed-btn"
             >
               <Plus size={16} />
               {t("promotions.addPromotion")}
@@ -465,26 +494,31 @@ export default function PromotionManageModal({
           )}
 
           <Box className="space-y-2">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+            <p className="sepela-label">
               {t("promotions.activeRules", { count: sortedPromotions.length })}
             </p>
             {sortedPromotions.length === 0 ? (
-              <p className="text-sm text-gray-600 py-4 text-center">{t("promotions.noPromotions")}</p>
+              <p className="text-sm sepela-hint py-4 text-center">{t("promotions.noPromotions")}</p>
             ) : (
               sortedPromotions.map((promotion) => (
                 <Box
                   key={promotion.id}
-                  className="flex items-start justify-between gap-3 p-3 rounded-lg border border-gray-800 bg-[#0f0f0f]"
+                  className="sepela-card-item flex items-start justify-between gap-3"
                 >
                   <Box className="min-w-0">
                     <Box className="flex flex-wrap items-center gap-2">
                       <p className="font-bold text-sm text-white truncate">{promotion.name}</p>
                       <StatusBadge promotion={promotion} t={t} />
                     </Box>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {promotion.discountType === PROMOTION_DISCOUNT_TYPE.PERCENTAGE
-                        ? `${promotion.discountValue}%`
-                        : currency.formatPrimary(promotion.discountValue)}{" "}
+                    <p className="text-xs sepela-text-secondary mt-1">
+                      {promotion.discountType === PROMOTION_DISCOUNT_TYPE.BUY_X_GET_Y
+                        ? t("promotions.buyXGetYLabel", {
+                            buy: promotion.discountValue,
+                            free: promotion.discountFreeQty ?? 0,
+                          })
+                        : promotion.discountType === PROMOTION_DISCOUNT_TYPE.PERCENTAGE
+                          ? `${promotion.discountValue}%`
+                          : currency.formatPrimary(promotion.discountValue)}{" "}
                       · {t(`promotions.scope.${promotion.targetScope}`)}
                       {promotion.clientTier ? ` · ${promotion.clientTier}` : ""}
                       {promotion.minOrderAmount
@@ -499,7 +533,7 @@ export default function PromotionManageModal({
                         setShowAddForm(false);
                         setEditingId(promotion.id);
                       }}
-                      className="p-2 text-gray-500 hover:text-amber-400"
+                      className="sepela-icon-btn sepela-icon-btn--accent"
                       title={t("promotions.editPromotion")}
                     >
                       <Pencil size={16} />
@@ -507,7 +541,7 @@ export default function PromotionManageModal({
                     <button
                       type="button"
                       onClick={() => handleDelete(promotion)}
-                      className="p-2 text-gray-500 hover:text-red-400"
+                      className="sepela-icon-btn sepela-icon-btn--danger"
                       title={t("common.clear")}
                     >
                       <Trash2 size={16} />
@@ -517,8 +551,7 @@ export default function PromotionManageModal({
               ))
             )}
           </Box>
-        </Box>
       </Box>
-    </Box>
+    </ManagementScreen>
   );
 }

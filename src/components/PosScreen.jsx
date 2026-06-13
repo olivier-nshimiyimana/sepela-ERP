@@ -1,14 +1,17 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { CreditCard, FileText, Search } from "lucide-react";
+import BelowCostConfirmModal from "./BelowCostConfirmModal";
 import CartDraftsModal from "./CartDraftsModal";
 import CartTable from "./CartTable";
 import ExpiryAlertsBanner from "./ExpiryAlertsBanner";
+import LineDiscountModal from "./LineDiscountModal";
 import PaymentModal from "./PaymentModal";
 import ProductGrid from "./ProductGrid";
 import { can, PERMISSIONS } from "../auth/permissions";
 import { usePosKeyboard } from "../hooks/usePosKeyboard";
 import { filterProductsBySearch } from "../utils/productSearch";
 import DualCurrencyAmount from "./DualCurrencyAmount";
+import { findBelowCostLineNames, normalizeCartDiscountFields } from "../utils/cartDiscount";
 import { buildFefoCatalog, buildFefoCartLine } from "../utils/fefo";
 import { useLocale } from "../contexts/LocaleContext";
 
@@ -25,11 +28,15 @@ export default function PosScreen({
   expiryAlertDays,
   cart,
   totalUSD,
+  grossTotalUSD,
+  manualDiscountUSD,
   upsertLine,
   replaceCart,
   removeLine,
   clearCart,
   onPaymentComplete,
+  invoiceProfile,
+  onOpenInvoice,
   onProforma,
   onOpenProducts,
   promotions = [],
@@ -39,20 +46,24 @@ export default function PosScreen({
   const [searchTerm, setSearchTerm] = useState("");
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isDraftsOpen, setIsDraftsOpen] = useState(false);
+  const [discountLine, setDiscountLine] = useState(null);
+  const [belowCostPending, setBelowCostPending] = useState(null);
   const searchRef = useRef(null);
 
   const showExpiryAlerts = can(user.role, PERMISSIONS.MANAGE_PRODUCTS);
+  const canApplyCartDiscount = can(user.role, PERMISSIONS.APPLY_CART_DISCOUNT);
   const catalogProducts = useMemo(
     () => buildFefoCatalog(products, cart, expiryAlertDays),
     [products, cart, expiryAlertDays]
   );
+  const cartProductIds = useMemo(() => new Set(cart.map((line) => line.id)), [cart]);
 
   const handleAdd = (product) => {
     const existing = cart.find((item) => item.id === product.id);
     const result = buildFefoCartLine({
       products,
       cart,
-      reference: product,
+      reference: existing ?? product,
       qty: (existing?.qty ?? 0) + 1,
       alertDays: expiryAlertDays,
       excludeLineId: existing?.id ?? null,
@@ -149,6 +160,36 @@ export default function PosScreen({
     replaceCart(draftCart);
   };
 
+  const applyLineDiscount = (lineId, discountData) => {
+    const line = cart.find((row) => row.id === lineId);
+    if (!line) return;
+    const next = { ...line, ...normalizeCartDiscountFields({ ...line, ...discountData }) };
+    const belowCost = findBelowCostLineNames([next], products);
+    if (belowCost.length > 0) {
+      setBelowCostPending({ kind: "line", lineId, discountData, names: belowCost });
+      return;
+    }
+    upsertLine(next);
+    setDiscountLine(null);
+  };
+
+  const confirmBelowCost = () => {
+    if (!belowCostPending) return;
+    if (belowCostPending.kind === "line") {
+      const line = cart.find((row) => row.id === belowCostPending.lineId);
+      if (line) {
+        upsertLine({
+          ...line,
+          ...normalizeCartDiscountFields({ ...line, ...belowCostPending.discountData }),
+        });
+      }
+      setDiscountLine(null);
+    } else if (belowCostPending.kind === "payment") {
+      setIsPaymentOpen(true);
+    }
+    setBelowCostPending(null);
+  };
+
   const openPayment = useCallback(() => {
     const refreshed = [];
     for (const line of cart) {
@@ -167,8 +208,19 @@ export default function PosScreen({
       refreshed.push(result.line);
     }
     replaceCart(refreshed);
+
+    const promoResult = evaluateCartPromotions
+      ? evaluateCartPromotions({ cart: refreshed, products, promotions, customer: null })
+      : { totalDiscountUSD: 0 };
+    const belowCost = findBelowCostLineNames(refreshed, products, {
+      promotionDiscountUSD: promoResult.totalDiscountUSD ?? 0,
+    });
+    if (belowCost.length > 0) {
+      setBelowCostPending({ kind: "payment", names: belowCost });
+      return;
+    }
     setIsPaymentOpen(true);
-  }, [cart, products, expiryAlertDays, replaceCart]);
+  }, [cart, products, expiryAlertDays, promotions, evaluateCartPromotions, replaceCart, tError]);
 
   usePosKeyboard({
     enabled: !isPaymentOpen,
@@ -202,15 +254,15 @@ export default function PosScreen({
             onManageProducts={onOpenProducts}
           />
         )}
-        <section className="flex-1 flex flex-col bg-[#0f0f0f]">
-          <Box className="p-4 border-b border-gray-900 flex gap-2">
+        <section className="flex-1 flex flex-col bg-sepela-bg">
+          <Box className="px-4 py-3 bg-sepela-toolbar flex gap-2">
             <Box className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 text-gray-500" size={18} />
+              <Search className="absolute left-3 top-3 text-sepela-muted" size={20} />
               <input
                 ref={searchRef}
                 type="text"
                 placeholder={t("pos.searchPlaceholder")}
-                className="w-full bg-[#1a1a1a] border border-gray-800 rounded-md py-2 pl-10 pr-4 focus:outline-none focus:border-blue-500"
+                className="pos-search w-full py-3 pl-11 pr-4 text-white placeholder:text-sepela-muted"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyDown={handleSearchKeyDown}
@@ -228,11 +280,13 @@ export default function PosScreen({
               onDecrement={handleDecrement}
               onSetQty={handleSetQty}
               onRemove={removeLine}
+              onDiscount={canApplyCartDiscount ? setDiscountLine : undefined}
+              showDiscount={canApplyCartDiscount}
             />
           </Box>
         </section>
 
-        <aside className="w-80 bg-[#161616] flex flex-col border-l border-gray-800 p-2">
+        <aside className="w-[22rem] bg-sepela-toolbar flex flex-col p-2.5 shadow-[inset_1px_0_0_#383838]">
           <Box className="flex-1 overflow-auto mb-4 min-h-0">
             <ProductGrid
               products={catalogProducts}
@@ -240,25 +294,26 @@ export default function PosScreen({
               exchangeRate={exchangeRate}
               primaryCurrency={primaryCurrency}
               expiryAlertDays={expiryAlertDays}
+              cartProductIds={cartProductIds}
               onAdd={handleAdd}
             />
           </Box>
 
-          <Box className="mt-auto grid gap-2 shrink-0">
+          <Box className="mt-auto grid gap-2.5 shrink-0 p-1">
             <button
               type="button"
               onClick={onProforma}
               disabled={cart.length === 0}
-              className="h-10 text-xs text-purple-300 uppercase font-bold border border-purple-800 rounded disabled:opacity-40 hover:bg-purple-950/40"
+              className="pos-side-btn"
             >
               {t("pos.proforma")}
             </button>
             <button
               type="button"
               onClick={() => setIsDraftsOpen(true)}
-              className="h-10 text-xs text-cyan-300 uppercase font-bold border border-cyan-900 rounded hover:bg-cyan-950/40 flex items-center justify-center gap-2"
+              className="pos-side-btn"
             >
-              <FileText size={14} />
+              <FileText size={16} />
               {t("pos.drafts")}
             </button>
             <button
@@ -268,7 +323,7 @@ export default function PosScreen({
                   clearCart();
                 }
               }}
-              className="h-10 text-xs text-red-500 uppercase font-bold border border-red-900 rounded"
+              className="pos-side-btn pos-side-btn--danger"
             >
               {t("pos.clearSale")}
             </button>
@@ -277,29 +332,29 @@ export default function PosScreen({
               onClick={openPayment}
               disabled={cart.length === 0}
               title={`${t("pos.payment")} (F4)`}
-              className="h-24 bg-green-600 hover:bg-green-700 disabled:bg-gray-800 rounded flex flex-col items-center justify-center shadow-lg active:scale-95 transition-all"
+              className="pos-pay-btn flex flex-col items-center justify-center active:scale-[0.98] transition-all"
             >
-              <CreditCard size={32} />
-              <span className="text-xl font-black mt-1 uppercase">{t("pos.payment")}</span>
-              <span className="text-[9px] text-green-200/80 mt-0.5 font-bold">{t("pos.paymentHint")}</span>
+              <CreditCard size={34} />
+              <span className="pos-pay-btn__label">{t("pos.payment")}</span>
+              <span className="pos-pay-btn__hint">{t("pos.paymentHint")}</span>
             </button>
           </Box>
         </aside>
       </Box>
 
-      <footer className="bg-[#1a1a1a] p-5 border-t-4 border-blue-600 flex justify-between items-end gap-6 shrink-0">
+      <footer className="bg-sepela-bg px-5 py-4 shadow-[inset_0_1px_0_#383838] flex justify-between items-end gap-6 shrink-0">
         <Box>
-          <p className="text-[10px] uppercase font-bold text-gray-500">{t("pos.currentSale")}</p>
+          <p className="pos-footer-label">{t("pos.currentSale")}</p>
           <DualCurrencyAmount
             amountUsd={totalUSD}
             exchangeRate={exchangeRate}
             primaryCurrency={primaryCurrency}
             size="xl"
-            primaryClassName="italic text-green-400"
+            primaryClassName="text-white"
           />
         </Box>
         <Box className="text-center hidden sm:block">
-          <p className="text-[10px] uppercase font-bold text-amber-500/90 tracking-[0.15em]">
+          <p className="pos-footer-label">
             {t("pos.sessionSales")} · {t("pos.sessionSalesHint")}
           </p>
           <DualCurrencyAmount
@@ -308,11 +363,11 @@ export default function PosScreen({
             primaryCurrency={primaryCurrency}
             size="lg"
             align="center"
-            primaryClassName="text-amber-400"
+            primaryClassName="text-sepela-muted"
           />
         </Box>
         <Box className="text-right sm:hidden">
-          <p className="text-[10px] uppercase font-bold text-amber-500/90">{t("pos.sessionSales")}</p>
+          <p className="pos-footer-label">{t("pos.sessionSales")}</p>
           <DualCurrencyAmount
             amountUsd={sessionSalesUSD}
             exchangeRate={exchangeRate}
@@ -334,6 +389,22 @@ export default function PosScreen({
         onLoadDraft={handleLoadDraft}
       />
 
+      {canApplyCartDiscount ? (
+        <LineDiscountModal
+          isOpen={!!discountLine}
+          line={discountLine}
+          onClose={() => setDiscountLine(null)}
+          onApply={applyLineDiscount}
+        />
+      ) : null}
+
+      <BelowCostConfirmModal
+        isOpen={!!belowCostPending}
+        itemNames={belowCostPending?.names ?? []}
+        onConfirm={confirmBelowCost}
+        onCancel={() => setBelowCostPending(null)}
+      />
+
       <PaymentModal
         isOpen={isPaymentOpen}
         customers={customers}
@@ -342,14 +413,22 @@ export default function PosScreen({
         promotions={promotions}
         evaluateCartPromotions={evaluateCartPromotions}
         totalUSD={totalUSD}
+        grossTotalUSD={grossTotalUSD}
+        manualDiscountUSD={manualDiscountUSD}
         exchangeRate={exchangeRate}
         primaryCurrency={primaryCurrency}
+        invoiceProfile={invoiceProfile}
+        onOpenInvoice={onOpenInvoice}
         onClose={() => setIsPaymentOpen(false)}
         onComplete={async (summary, options) => {
-          const ok = await onPaymentComplete(summary, cart, options);
-          if (ok !== false) {
+          const result = await onPaymentComplete(summary, cart, options);
+          if (options?.recordOnly) {
+            return result;
+          }
+          if (result !== false) {
             setIsPaymentOpen(false);
           }
+          return result;
         }}
       />
     </>

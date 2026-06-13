@@ -23,11 +23,24 @@ export function validatePromotionFields(fields, locale = "fr") {
 
   const discountType = fields.discountType;
   const discountValue = Number(fields.discountValue);
-  if (!Number.isFinite(discountValue) || discountValue <= 0) {
-    return { ok: false, error: appError("promotionDiscountInvalid", locale) };
-  }
-  if (discountType === PROMOTION_DISCOUNT_TYPE.PERCENTAGE && discountValue > 100) {
-    return { ok: false, error: appError("promotionDiscountInvalid", locale) };
+  const discountFreeQty = Number(fields.discountFreeQty);
+
+  if (discountType === PROMOTION_DISCOUNT_TYPE.BUY_X_GET_Y) {
+    const buyQty = Math.floor(discountValue);
+    const freeQty = Math.floor(discountFreeQty);
+    if (!Number.isFinite(discountValue) || buyQty < 1 || buyQty !== discountValue) {
+      return { ok: false, error: appError("promotionBuyQtyInvalid", locale) };
+    }
+    if (!Number.isFinite(discountFreeQty) || freeQty < 1 || freeQty !== discountFreeQty) {
+      return { ok: false, error: appError("promotionFreeQtyInvalid", locale) };
+    }
+  } else {
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+      return { ok: false, error: appError("promotionDiscountInvalid", locale) };
+    }
+    if (discountType === PROMOTION_DISCOUNT_TYPE.PERCENTAGE && discountValue > 100) {
+      return { ok: false, error: appError("promotionDiscountInvalid", locale) };
+    }
   }
 
   const start = parseTime(fields.startDate);
@@ -53,7 +66,14 @@ export function validatePromotionFields(fields, locale = "fr") {
       categoryId: fields.categoryId ? String(fields.categoryId).trim() : null,
       productId: fields.productId ? String(fields.productId).trim() : null,
       discountType,
-      discountValue,
+      discountValue:
+        discountType === PROMOTION_DISCOUNT_TYPE.BUY_X_GET_Y
+          ? Math.floor(discountValue)
+          : discountValue,
+      discountFreeQty:
+        discountType === PROMOTION_DISCOUNT_TYPE.BUY_X_GET_Y
+          ? Math.floor(discountFreeQty)
+          : null,
       clientTier: String(fields.clientTier ?? "").trim() || null,
       minOrderAmount,
       startDate: new Date(start).toISOString(),

@@ -1,4 +1,6 @@
 import { useCallback, useState } from "react";
+import { cartSubtotalGrossUsd, cartSubtotalNetUsd } from "../utils/cartDiscount";
+import { roundUsd } from "../utils/moneyRounding";
 
 export function useCart() {
   const [cart, setCart] = useState([]);
@@ -67,7 +69,9 @@ export function useCart() {
     );
   }, []);
 
-  const totalUSD = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const grossTotalUSD = cartSubtotalGrossUsd(cart);
+  const totalUSD = cartSubtotalNetUsd(cart);
+  const manualDiscountUSD = roundUsd(Math.max(0, grossTotalUSD - totalUSD));
 
   return {
     cart,
@@ -81,5 +85,7 @@ export function useCart() {
     replaceCart,
     removeProductFromCart,
     totalUSD,
+    grossTotalUSD,
+    manualDiscountUSD,
   };
 }

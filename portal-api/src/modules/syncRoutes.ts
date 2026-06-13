@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { withTransaction } from "../db.js";
-import { assertPortalToken } from "./auth.js";
+import { assertPortalAdmin, assertPortalToken } from "./auth.js";
 import { assertSyncLeaseAllowed } from "./deviceLease.js";
 
 const syncTablesSchema = z.object({
@@ -32,7 +32,7 @@ const listQuery = z.object({
 
 export const syncRoutes: FastifyPluginAsync = async (app) => {
   app.get("/admin/sync-ingestions", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdmin(request);
     const query = listQuery.parse(request.query);
 
     const result = await withTransaction(async (client) => {

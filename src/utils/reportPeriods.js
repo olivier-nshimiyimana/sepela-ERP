@@ -1,3 +1,4 @@
+import { roundCdf, roundUsd } from "./moneyRounding";
 import { salePromotionDiscountUsd } from "./saleTotals";
 
 export function startOfDay(date) {
@@ -20,24 +21,109 @@ export function startOfMonth(date) {
   return d;
 }
 
-export function filterSalesByPeriod(sales, period) {
-  const now = new Date();
-  let from;
-  switch (period) {
-    case "daily":
-      from = startOfDay(now);
-      break;
-    case "weekly":
-      from = startOfWeek(now);
-      break;
-    case "monthly":
-      from = startOfMonth(now);
-      break;
+export function endOfDay(date) {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+export function startOfYear(date) {
+  const d = startOfDay(date);
+  d.setMonth(0, 1);
+  return d;
+}
+
+export function toDateInputValue(date) {
+  const d = startOfDay(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+export function fromDateInputValue(value) {
+  return startOfDay(new Date(`${value}T00:00:00`));
+}
+
+export const REPORT_PERIOD_PRESETS = [
+  "today",
+  "yesterday",
+  "this_week",
+  "last_week",
+  "this_month",
+  "last_month",
+  "this_year",
+  "last_year",
+];
+
+export function resolveReportPeriodPreset(preset, anchor = new Date()) {
+  const today = startOfDay(anchor);
+  switch (preset) {
+    case "yesterday": {
+      const day = new Date(today);
+      day.setDate(day.getDate() - 1);
+      return { from: day, to: day, preset };
+    }
+    case "this_week":
+      return { from: startOfWeek(anchor), to: today, preset };
+    case "last_week": {
+      const weekStart = startOfWeek(anchor);
+      const end = new Date(weekStart);
+      end.setDate(end.getDate() - 1);
+      return { from: startOfWeek(end), to: end, preset };
+    }
+    case "this_month":
+      return { from: startOfMonth(anchor), to: today, preset };
+    case "last_month": {
+      const start = startOfMonth(anchor);
+      start.setMonth(start.getMonth() - 1);
+      const end = new Date(startOfMonth(anchor));
+      end.setDate(end.getDate() - 1);
+      return { from: start, to: end, preset };
+    }
+    case "this_year":
+      return { from: startOfYear(anchor), to: today, preset };
+    case "last_year": {
+      const year = anchor.getFullYear() - 1;
+      return {
+        from: startOfDay(new Date(year, 0, 1)),
+        to: endOfDay(new Date(year, 11, 31)),
+        preset,
+      };
+    }
+    case "today":
     default:
-      from = startOfDay(now);
+      return { from: today, to: today, preset: "today" };
   }
-  const fromMs = from.getTime();
-  return sales.filter((s) => new Date(s.timestamp).getTime() >= fromMs);
+}
+
+export function formatDateRangeLabel(from, to, locale = "en") {
+  const fmt = (date) =>
+    date.toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", {
+      month: "numeric",
+      day: "numeric",
+      year: "numeric",
+    });
+  const start = startOfDay(from);
+  const end = startOfDay(to);
+  if (start.getTime() === end.getTime()) return fmt(start);
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+export function filterSalesByDateRange(sales, from, to) {
+  const fromMs = startOfDay(from).getTime();
+  const toMs = endOfDay(to).getTime();
+  return (sales ?? []).filter((sale) => {
+    const ts = new Date(sale.timestamp).getTime();
+    return !Number.isNaN(ts) && ts >= fromMs && ts <= toMs;
+  });
+}
+
+export function filterSalesByPeriod(sales, period) {
+  const range = resolveReportPeriodPreset(
+    period === "weekly" ? "this_week" : period === "monthly" ? "this_month" : "today"
+  );
+  return filterSalesByDateRange(sales, range.from, range.to);
 }
 
 export function aggregateSales(sales) {
@@ -68,12 +154,17 @@ export function aggregateSales(sales) {
     .sort((a, b) => b.qty - a.qty)
     .slice(0, 5);
 
+  const roundedByMethod = {};
+  for (const [method, usd] of Object.entries(byMethod)) {
+    roundedByMethod[method] = roundUsd(usd);
+  }
+
   return {
     count: sales.filter((s) => s.status !== "refunded").length,
-    totalUSD,
-    totalCDF,
-    totalPromotionDiscountUSD,
-    byMethod,
+    totalUSD: roundUsd(totalUSD),
+    totalCDF: roundCdf(totalCDF),
+    totalPromotionDiscountUSD: roundUsd(totalPromotionDiscountUSD),
+    byMethod: roundedByMethod,
     topProducts,
   };
 }

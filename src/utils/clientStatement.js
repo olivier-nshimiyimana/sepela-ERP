@@ -1,3 +1,4 @@
+import { PLATFORM_PRODUCT_NAME } from "../data/platformBranding";
 import { DEFAULT_LOCALE, translate } from "../i18n";
 import {
   DEFAULT_PRIMARY_CURRENCY,
@@ -6,6 +7,7 @@ import {
   normalizePrimaryCurrency,
   saleExchangeRate,
 } from "./currency";
+import { roundCdf, roundUsd } from "./moneyRounding";
 
 export function summarizeClientSales(sales = []) {
   const invoiceCount = sales.length;
@@ -19,12 +21,12 @@ export function summarizeClientSales(sales = []) {
   return {
     invoiceCount,
     refundedCount,
-    grossUSD,
-    grossCDF,
-    refundedUSD,
-    refundedCDF,
-    netUSD: grossUSD - refundedUSD,
-    netCDF: grossCDF - refundedCDF,
+    grossUSD: roundUsd(grossUSD),
+    grossCDF: roundCdf(grossCDF),
+    refundedUSD: roundUsd(refundedUSD),
+    refundedCDF: roundCdf(refundedCDF),
+    netUSD: roundUsd(grossUSD - refundedUSD),
+    netCDF: roundCdf(grossCDF - refundedCDF),
   };
 }
 
@@ -88,7 +90,7 @@ export function formatClientStatementText({
   const summary = summarizeClientSales(sales);
   const primary = normalizePrimaryCurrency(primaryCurrency);
   const rate = Number(exchangeRate) > 0 ? Number(exchangeRate) : 2850;
-  const companyName = profile.companyName?.trim() || "Sepela ERP";
+  const companyName = profile.companyName?.trim() || PLATFORM_PRODUCT_NAME;
   const rangeLabel = formatClientStatementRange(range, locale);
   const t = (key, params) => translate(key, locale, params);
 

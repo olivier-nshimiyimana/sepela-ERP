@@ -24,7 +24,7 @@ export default function HighlightText({ text, searchTerm, className = "" }) {
           return (
             <mark
               key={`${i}-${part}`}
-              className="bg-yellow-400 text-black rounded-sm px-0.5 font-semibold"
+              className="bg-yellow-400 text-black rounded-sm px-0.5 font-bold"
             >
               {part}
             </mark>

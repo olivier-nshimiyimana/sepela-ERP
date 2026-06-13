@@ -2,13 +2,16 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { config } from "./config.js";
 import { pool } from "./db.js";
+import { bootstrapPortalAdmins } from "./migrations/bootstrapPortalAdmins.js";
 import { migrateInventoryBreakdown } from "./migrations/inventoryBreakdown.js";
 import { migrateOperatorUsernameGlobal } from "./migrations/operatorUsernameGlobal.js";
 import { migratePromotions } from "./migrations/promotions.js";
 import { bootstrapSql } from "./schema.js";
+import { registerAdminAuditHook } from "./modules/auditLog.js";
 import { managementRoutes } from "./modules/managementRoutes.js";
 import { reportRoutes } from "./modules/reportRoutes.js";
 import { operatorRoutes } from "./modules/operatorRoutes.js";
+import { portalAdminRoutes } from "./modules/portalAdminRoutes.js";
 import { syncRoutes } from "./modules/syncRoutes.js";
 import { tenantRoutes } from "./modules/tenantRoutes.js";
 
@@ -55,7 +58,7 @@ await app.register(cors, {
     callback(null, isAllowedCorsOrigin(origin));
   },
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Operator-Session"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Operator-Session", "X-Admin-Session"],
 });
 
 app.setErrorHandler((error, _request, reply) => {
@@ -97,6 +100,9 @@ app.get("/", async (_request, reply) => {
 // Explicit API path health check
 app.get("/health", async () => ({ ok: true, service: "sepela-portal-api" }));
 
+registerAdminAuditHook(app);
+
+app.register(portalAdminRoutes);
 app.register(tenantRoutes);
 app.register(operatorRoutes);
 app.register(managementRoutes);
@@ -108,6 +114,7 @@ async function start() {
   await migrateInventoryBreakdown(pool);
   await migrateOperatorUsernameGlobal(pool);
   await migratePromotions(pool);
+  await bootstrapPortalAdmins(pool);
   await app.listen({
     port: config.PORT,
     host: config.HOST,

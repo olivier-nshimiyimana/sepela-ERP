@@ -412,6 +412,22 @@ export function useLocalStorageData() {
     [setSales]
   );
 
+  const updateSaleNotes = useCallback(
+    (saleId, notes) => {
+      let updated = null;
+      const trimmed = String(notes ?? "").trim() || null;
+      setSales((prev) =>
+        prev.map((s) => {
+          if (s.id !== saleId) return s;
+          updated = { ...s, notes: trimmed, updatedAt: nowIso(), syncStatus: "PENDING" };
+          return updated;
+        })
+      );
+      return updated;
+    },
+    [setSales]
+  );
+
   const recordPurchase = useCallback(
     (payload) => {
       const supplierResult = saveSupplier(payload.supplier ?? {});
@@ -932,6 +948,7 @@ export function useLocalStorageData() {
     recordPurchase,
     refundSale,
     incrementCopyIndex,
+    updateSaleNotes,
     saveCustomer,
     saveSupplier,
     updateCustomer,

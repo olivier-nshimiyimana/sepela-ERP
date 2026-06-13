@@ -17,19 +17,20 @@ export default function DualCurrencyAmount({
 
   const primarySize =
     size === "xl"
-      ? "text-4xl font-black italic"
+      ? "text-[2.75rem] leading-none font-bold"
       : size === "lg"
-        ? "text-2xl font-bold"
+        ? "text-3xl font-bold"
         : size === "sm"
-          ? "text-sm font-semibold"
-          : "text-xl font-bold";
+          ? "text-base font-bold"
+          : "text-2xl font-bold";
 
-  const secondarySize = size === "xl" ? "text-sm" : "text-xs";
+  const secondarySize =
+    size === "xl" ? "text-sm font-semibold" : size === "lg" ? "text-xs font-semibold" : "text-xs font-semibold";
 
   return (
     <Box className={alignClass}>
-      <p className={`${primarySize} text-white ${primaryClassName}`.trim()}>{dual.primary}</p>
-      <p className={`${secondarySize} text-gray-500 mt-0.5 ${secondaryClassName}`.trim()}>
+      <p className={`sepela-money ${primarySize} text-white ${primaryClassName}`.trim()}>{dual.primary}</p>
+      <p className={`sepela-money ${secondarySize} text-sepela-muted mt-0.5 ${secondaryClassName}`.trim()}>
         ≈ {dual.secondary}
       </p>
     </Box>

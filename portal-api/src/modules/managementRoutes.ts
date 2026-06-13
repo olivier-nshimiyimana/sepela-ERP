@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { withTransaction } from "../db.js";
 import { industryProfileSchema } from "../industryProfile.js";
-import { assertPortalToken } from "./auth.js";
+import { assertPortalAdminWrite } from "./auth.js";
 
 const idParam = z.object({
   id: z.string().uuid(),
@@ -51,7 +51,7 @@ const leasePatch = z.object({
 
 export const managementRoutes: FastifyPluginAsync = async (app) => {
   app.patch("/admin/merchants/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
     const body = merchantPatch.parse(request.body);
 
@@ -101,7 +101,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/admin/merchants/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
 
     await withTransaction(async (client) => {
@@ -113,7 +113,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/admin/branches", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const body = branchCreate.parse(request.body);
 
     const row = await withTransaction(async (client) => {
@@ -164,7 +164,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.patch("/admin/branches/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
     const body = branchPatch.parse(request.body);
 
@@ -219,7 +219,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/admin/branches/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
 
     await withTransaction(async (client) => {
@@ -231,7 +231,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.patch("/admin/devices/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
     const body = devicePatch.parse(request.body);
 
@@ -280,7 +280,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/admin/devices/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
 
     await withTransaction(async (client) => {
@@ -292,7 +292,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.patch("/admin/activation-codes/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
     const body = activationPatch.parse(request.body);
 
@@ -342,7 +342,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/admin/activation-codes/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
 
     await withTransaction(async (client) => {
@@ -354,7 +354,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.patch("/admin/offline-leases/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
     const body = leasePatch.parse(request.body);
 
@@ -386,7 +386,7 @@ export const managementRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/admin/offline-leases/:id", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const { id } = idParam.parse(request.params);
 
     await withTransaction(async (client) => {

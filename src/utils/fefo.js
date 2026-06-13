@@ -1,8 +1,10 @@
+import { cartLineNetUsd } from "./cartDiscount";
 import { sellableStockQuantity } from "./inventoryBreakdown";
+import { roundUsd } from "./moneyRounding";
 import { isProductSellable, parseExpiryDate } from "./productExpiry";
 
 function normalizePrice(price) {
-  return Number.parseFloat(price ?? 0).toFixed(2);
+  return roundUsd(price).toFixed(2);
 }
 
 function familyName(name) {
@@ -131,6 +133,9 @@ export function buildFefoCartLine({
       expirationDate: firstAllocation?.expirationDate ?? "",
       batchCount: allocations.length,
       allocations,
+      discountType: reference.discountType,
+      discountValue: reference.discountValue,
+      discountFreeQty: reference.discountFreeQty,
     },
   };
 }
@@ -180,12 +185,15 @@ export function expandCartToSaleItems(cart = []) {
           },
         ];
 
+    const lineNet = cartLineNetUsd(line);
+    const unitNet = line.qty > 0 ? lineNet / line.qty : line.price;
+
     return allocations.map((allocation) => ({
       productId: allocation.productId,
       name: line.name,
       lotNumber: allocation.lotNumber,
       expirationDate: allocation.expirationDate,
-      price: line.price,
+      price: unitNet,
       qty: allocation.qty,
     }));
   });

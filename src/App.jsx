@@ -20,7 +20,7 @@ import { translate } from "./i18n";
 import { useDatabase } from "./contexts/DatabaseContext";
 import { buildAppBackup, validateAppBackup } from "./utils/backupFormat";
 import { expandCartToSaleItems } from "./utils/fefo";
-import { usdToCdf } from "./utils/currency";
+import { roundUsd, usdToCdf } from "./utils/currency";
 import {
   receiptContextForCopy,
   receiptContextForProforma,
@@ -126,6 +126,8 @@ export default function App() {
     clearCart,
     removeProductFromCart,
     totalUSD,
+    grossTotalUSD,
+    manualDiscountUSD,
   } = useCart();
 
   const [isProductsOpen, setIsProductsOpen] = useState(false);
@@ -182,6 +184,11 @@ export default function App() {
   };
 
   const handlePaymentComplete = async (summary, cartItems, options = {}) => {
+    if (options.done) {
+      clearCart();
+      return true;
+    }
+
     const saleItems = expandCartToSaleItems(cartItems);
     let customer = null;
     if (summary.customerName?.trim() && (summary.customerId || summary.saveCustomer)) {
@@ -215,14 +222,15 @@ export default function App() {
           totalDiscountUSD: summary.promotionDiscountUSD ?? 0,
           appliedPromotionIds: summary.appliedPromotionId ? [summary.appliedPromotionId] : [],
         };
-    const finalTotalUSD = promoResult.totalAfterDiscountUSD;
+    const finalTotalUSD = roundUsd(promoResult.totalAfterDiscountUSD);
     const finalTotalCDF = usdToCdf(finalTotalUSD, exchangeRate);
 
     const sale = await recordSale({
       ...summary,
       totalUSD: finalTotalUSD,
       totalCDF: finalTotalCDF,
-      promotionDiscountUSD: promoResult.totalDiscountUSD,
+      manualDiscountUSD: roundUsd(summary.manualDiscountUSD ?? manualDiscountUSD),
+      promotionDiscountUSD: roundUsd(promoResult.totalDiscountUSD),
       appliedPromotionId: promoResult.appliedPromotionIds?.[0] ?? null,
       customerId: customer?.id ?? summary.customerId ?? null,
       customerName: customer?.name ?? summary.customerName?.trim() ?? null,
@@ -243,11 +251,16 @@ export default function App() {
     }
     await decrementStockForSale(saleItems);
     if (!trainingMode) {
-      const amount = Number(sale?.totalUSD ?? summary?.totalUSD ?? 0);
+      const amount = roundUsd(sale?.totalUSD ?? summary?.totalUSD ?? 0);
       if (amount > 0) {
-        setSessionSalesUSD((prev) => prev + amount);
+        setSessionSalesUSD((prev) => roundUsd(prev + amount));
       }
     }
+
+    if (options.recordOnly) {
+      return sale;
+    }
+
     clearCart();
     if (options.printNow) {
       openInvoice(sale, null);
@@ -350,8 +363,11 @@ export default function App() {
   if (!ready || !db.ready) {
     return (
       <LocaleProvider locale={language}>
-        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] text-gray-500">
-          {translate("common.loading", language)}
+        <div className="min-h-screen flex items-center justify-center bg-sepela-bg">
+          <div className="sepela-loading">
+            <div className="sepela-loading__spinner" aria-hidden="true" />
+            <span>{translate("common.loading", language)}</span>
+          </div>
         </div>
       </LocaleProvider>
     );
@@ -384,7 +400,7 @@ export default function App() {
   return (
     <LocaleProvider locale={language}>
     <CurrencyProvider exchangeRate={exchangeRate} primaryCurrency={primaryCurrency}>
-    <div className="relative flex h-screen w-screen flex-col bg-[#0a0a0a] text-white overflow-hidden font-sans">
+    <div className="relative flex h-screen w-screen flex-col bg-sepela-bg text-white overflow-hidden font-sans text-[15px] font-semibold">
       <AppHeader
         user={user}
         exchangeRate={exchangeRate}
@@ -415,11 +431,15 @@ export default function App() {
           expiryAlertDays={expiryAlertDays}
           cart={cart}
           totalUSD={totalUSD}
+          grossTotalUSD={grossTotalUSD}
+          manualDiscountUSD={manualDiscountUSD}
           upsertLine={upsertLine}
           replaceCart={replaceCart}
           removeLine={removeLine}
           clearCart={clearCart}
           onPaymentComplete={handlePaymentComplete}
+          invoiceProfile={invoiceProfile}
+          onOpenInvoice={(sale) => openInvoice(sale, null)}
           onProforma={handleProforma}
           onOpenProducts={() => setIsProductsOpen(true)}
           promotions={promotions}

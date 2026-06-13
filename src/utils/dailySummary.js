@@ -5,6 +5,7 @@ import {
   formatMoneyPrimary,
   normalizePrimaryCurrency,
 } from "./currency";
+import { roundUsd } from "./moneyRounding";
 import { aggregateSales, filterSalesByPeriod } from "./reportPeriods";
 import { getExpiryAlerts, getExpiryStatus } from "./productExpiry";
 
@@ -24,17 +25,22 @@ function countLowStockProducts(products = [], expiryAlertDays = 30) {
 }
 
 function summarizeCurrentStock(products = []) {
-  return products.reduce(
+  const summary = products.reduce(
     (acc, product) => {
       const stock = product.stock ?? 0;
       const price = product.price ?? 0;
       acc.productCount += 1;
       acc.totalUnits += stock;
-      acc.totalValueUSD += stock * price;
+      acc.totalValueUSD += stock * roundUsd(price);
       return acc;
     },
     { productCount: 0, totalUnits: 0, totalValueUSD: 0 }
   );
+  return {
+    productCount: summary.productCount,
+    totalUnits: summary.totalUnits,
+    totalValueUSD: roundUsd(summary.totalValueUSD),
+  };
 }
 
 export function buildDailySummaryData({
@@ -64,7 +70,7 @@ export function formatDailyWhatsAppSummary(data, primaryCurrency = DEFAULT_PRIMA
   const primary = normalizePrimaryCurrency(primaryCurrency);
   const rate = data.exchangeRate ?? 2850;
   const lines = [
-    "SEPELA DAILY REPORT",
+    "Sepela Daily Report",
     `Date: ${data.dateLabel}`,
     `Transactions: ${data.stats.count}`,
     `Sales: ${formatMoneyPairLine(data.stats.totalUSD, rate, primary)}`,

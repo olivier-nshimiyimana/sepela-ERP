@@ -36,10 +36,10 @@ export const DEFAULT_PORTAL_API_URL = (() => {
 export const DEFAULT_PORTAL_API_TOKEN = String(import.meta.env.VITE_PORTAL_API_TOKEN ?? "").trim();
 
 export const ACTIVATION_SUPPORT_MESSAGE =
-  "Your store is not activated or your license has expired. Please contact SEPELA INC for assistance.";
+  "Your store is not activated or your license has expired. Please contact Sepela Inc. for assistance.";
 
 export const TERMINAL_NOT_CONFIGURED_MESSAGE =
-  "This terminal is not configured for cloud access. Please contact SEPELA INC.";
+  "This terminal is not configured for cloud access. Please contact Sepela Inc.";
 
 export const DEVICE_MERCHANT_MISMATCH_MESSAGE =
   "This terminal is activated for another store. Sign in with that store's account, or re-activate the device in Settings for your store.";

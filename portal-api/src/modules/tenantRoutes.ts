@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { withTransaction } from "../db.js";
 import { DEFAULT_INDUSTRY_PROFILE, industryProfileSchema } from "../industryProfile.js";
-import { assertPortalToken } from "./auth.js";
+import { assertPortalAdmin, assertPortalAdminWrite, assertPortalToken } from "./auth.js";
 import { fetchLeaseStatusByDevice, fetchLeaseStatusByToken } from "./deviceLease.js";
 import { signOfflineLease } from "./lease.js";
 
@@ -54,7 +54,7 @@ const listQuery = z.object({
 
 export const tenantRoutes: FastifyPluginAsync = async (app) => {
   app.get("/admin/overview", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdmin(request);
 
     const result = await withTransaction(async (client) => {
       const [merchants, branches, devices, activationCodes, leases, syncs] = await Promise.all([
@@ -104,7 +104,7 @@ export const tenantRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/admin/merchants", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdmin(request);
 
     const result = await withTransaction(async (client) => {
       const [merchantRows, branchRows, deviceRows] = await Promise.all([
@@ -198,7 +198,7 @@ export const tenantRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/admin/activation-codes", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdmin(request);
     const query = listQuery.parse(request.query);
 
     const result = await withTransaction(async (client) => {
@@ -235,7 +235,7 @@ export const tenantRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/admin/offline-leases", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdmin(request);
     const query = listQuery.parse(request.query);
 
     const result = await withTransaction(async (client) => {
@@ -278,7 +278,7 @@ export const tenantRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/admin/bootstrap-tenant", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const body = merchantBody.parse(request.body);
 
     const result = await withTransaction(async (client) => {
@@ -327,7 +327,7 @@ export const tenantRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/admin/activation-codes", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const body = activationBody.parse(request.body);
 
     const result = await withTransaction(async (client) => {
@@ -363,7 +363,7 @@ export const tenantRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/admin/offline-leases", async (request, reply) => {
-    assertPortalToken(request);
+    await assertPortalAdminWrite(request);
     const body = leaseBody.parse(request.body);
 
     const result = await withTransaction(async (client) => {

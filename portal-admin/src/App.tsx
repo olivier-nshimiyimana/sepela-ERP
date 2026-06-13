@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import { LoginScreen } from "./components/LoginScreen";
+import { ReadOnlyBanner, WriteGate } from "./components/SecurityChrome";
+import { SessionExpiryChip } from "./components/SessionExpiryChip";
+import { readStoredSessionExpiry, storeSessionExpiry } from "./hooks/useSessionExpiry";
 import { ManageModal } from "./components/ManageModal";
 import { RowActions } from "./components/RowActions";
 import { PortalPage } from "./components/PortalPage";
@@ -8,12 +12,16 @@ import { FormField } from "./components/ui/FormField";
 import { SearchField } from "./components/ui/SearchField";
 import type {
   ActivationCode,
+  AuditLogEntry,
   EditKind,
   Lease,
   Merchant,
   Operator,
   Overview,
+  PortalAdminUser,
   PortalTab,
+  PortalUser,
+  SecuritySummary,
   SyncBuckets,
   SyncIngestion,
 } from "./types";
@@ -35,10 +43,13 @@ import {
   formatDeviceOption,
   formatMerchantOption,
 } from "./utils/portalSelect";
+import { auditEntriesToCsv, downloadCsv } from "./utils/auditCsv";
+import { resolveApiBaseUrl } from "./config/api";
 import "./App.css";
 
-const API_BASE_KEY = "sepela-portal-admin-api-base-url";
-const API_TOKEN_KEY = "sepela-portal-admin-api-token";
+const AUDIT_PAGE_SIZE = 50;
+const ADMIN_SESSION_KEY = "sepela-portal-admin-session";
+const API_BASE_URL = resolveApiBaseUrl();
 
 type TenantFormState = {
   merchantCode: string;
@@ -74,7 +85,14 @@ type OperatorFormState = {
   role: string;
 };
 
-const TABS: PortalTab[] = ["overview", "merchants", "accounts", "activation", "leases", "sync"];
+type PortalUserFormState = {
+  username: string;
+  displayName: string;
+  password: string;
+  role: string;
+};
+
+const TABS: PortalTab[] = ["overview", "merchants", "accounts", "activation", "leases", "sync", "audit"];
 
 const TAB_LABELS: Record<PortalTab, string> = {
   overview: "Overview",
@@ -83,7 +101,15 @@ const TAB_LABELS: Record<PortalTab, string> = {
   activation: "Activation",
   leases: "Leases",
   sync: "Sync",
+  portal_users: "Portal users",
+  audit: "Audit log",
 };
+
+const PORTAL_USER_ROLES = [
+  { value: "super_admin", label: "Super admin" },
+  { value: "admin", label: "Admin" },
+  { value: "read_only", label: "Read only" },
+];
 
 const initialTenantForm: TenantFormState = {
   merchantCode: "",
@@ -119,6 +145,13 @@ const initialOperatorForm: OperatorFormState = {
   role: "cashier",
 };
 
+const initialPortalUserForm: PortalUserFormState = {
+  username: "",
+  displayName: "",
+  password: "",
+  role: "admin",
+};
+
 const OPERATOR_ROLES = [
   { value: "cashier", label: "Cashier" },
   { value: "manager", label: "Manager" },
@@ -146,24 +179,29 @@ type EditDraft = {
 };
 
 function App() {
-  const [apiBaseUrl, setApiBaseUrl] = useState(
-    localStorage.getItem(API_BASE_KEY) || import.meta.env.VITE_PORTAL_API_BASE_URL || "http://localhost:4000"
+  const [adminSession, setAdminSession] = useState(
+    () => sessionStorage.getItem(ADMIN_SESSION_KEY) || ""
   );
-  const [apiToken, setApiToken] = useState(localStorage.getItem(API_TOKEN_KEY) || "");
+  const [portalAdmin, setPortalAdmin] = useState<PortalAdminUser | null>(null);
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(() => readStoredSessionExpiry());
+  const [authChecked, setAuthChecked] = useState(false);
+  const [loginError, setLoginError] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"neutral" | "success" | "error">("neutral");
 
   const [activeTab, setActiveTab] = useState<PortalTab>("overview");
-  const [connectionOpen, setConnectionOpen] = useState(false);
   const [tenantFormOpen, setTenantFormOpen] = useState(false);
   const [branchFormMerchantId, setBranchFormMerchantId] = useState<string | null>(null);
   const [activationFormOpen, setActivationFormOpen] = useState(false);
   const [leaseFormOpen, setLeaseFormOpen] = useState(false);
   const [operatorFormOpen, setOperatorFormOpen] = useState(false);
+  const [portalUserFormOpen, setPortalUserFormOpen] = useState(false);
+  const [portalUserSearch, setPortalUserSearch] = useState("");
   const [merchantSearch, setMerchantSearch] = useState("");
   const [accountSearch, setAccountSearch] = useState("");
   const [syncSearch, setSyncSearch] = useState("");
+  const [auditSearch, setAuditSearch] = useState("");
   const [expandedMerchantId, setExpandedMerchantId] = useState<string | null>(null);
   const [expandedAccountMerchant, setExpandedAccountMerchant] = useState<string | null>(null);
   const [expandedSyncMerchant, setExpandedSyncMerchant] = useState<string | null>(null);
@@ -171,9 +209,14 @@ function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [operators, setOperators] = useState<Operator[]>([]);
+  const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [activationCodes, setActivationCodes] = useState<ActivationCode[]>([]);
   const [leases, setLeases] = useState<Lease[]>([]);
   const [syncIngestions, setSyncIngestions] = useState<SyncIngestion[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
+  const [auditHasMore, setAuditHasMore] = useState(false);
+  const [auditNextBefore, setAuditNextBefore] = useState<string | null>(null);
+  const [securitySummary, setSecuritySummary] = useState<SecuritySummary | null>(null);
 
   const [tenantForm, setTenantForm] = useState<TenantFormState>(initialTenantForm);
   const [branchForm, setBranchForm] = useState({
@@ -185,17 +228,45 @@ function App() {
   const [activationForm, setActivationForm] = useState<ActivationFormState>(initialActivationForm);
   const [leaseForm, setLeaseForm] = useState<LeaseFormState>(initialLeaseForm);
   const [operatorForm, setOperatorForm] = useState<OperatorFormState>(initialOperatorForm);
+  const [portalUserForm, setPortalUserForm] = useState<PortalUserFormState>(initialPortalUserForm);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
 
   useEffect(() => {
-    localStorage.setItem(API_BASE_KEY, apiBaseUrl);
-  }, [apiBaseUrl]);
+    if (adminSession) {
+      sessionStorage.setItem(ADMIN_SESSION_KEY, adminSession);
+    } else {
+      sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    }
+  }, [adminSession]);
 
-  useEffect(() => {
-    localStorage.setItem(API_TOKEN_KEY, apiToken);
-  }, [apiToken]);
+  const isSuperAdmin = portalAdmin?.role === "super_admin";
+  const canWrite = portalAdmin?.role !== "read_only";
+  const connectionReady = Boolean(adminSession) && Boolean(portalAdmin);
+  const visibleTabs = useMemo(() => {
+    const tabs: PortalTab[] = [...TABS];
+    if (isSuperAdmin) tabs.push("portal_users");
+    return tabs;
+  }, [isSuperAdmin]);
 
-  const connectionReady = apiBaseUrl.trim().length > 0 && apiToken.trim().length > 0;
+  const filteredAuditLog = useMemo(() => {
+    const query = auditSearch.trim().toLowerCase();
+    if (!query) return auditLog;
+    return auditLog.filter((entry) => {
+      const haystack = [
+        entry.action,
+        entry.path,
+        entry.adminUsername,
+        entry.method,
+        entry.targetType,
+        entry.targetId,
+        entry.ipAddress,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [auditLog, auditSearch]);
 
   const statCards = useMemo(
     () =>
@@ -276,41 +347,159 @@ function App() {
     return groupOperatorsByMerchant(filtered, merchants);
   }, [operators, accountSearch, merchants]);
 
+  const filteredPortalUsers = useMemo(() => {
+    const query = portalUserSearch.trim().toLowerCase();
+    if (!query) return portalUsers;
+    return portalUsers.filter((user) => {
+      const haystack = `${user.displayName} ${user.username} ${user.role} ${user.status}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [portalUsers, portalUserSearch]);
+
   const syncMerchantGroups = useMemo(() => {
     const grouped = groupSyncByMerchant(syncIngestions, merchants);
     return filterSyncMerchantGroups(grouped, syncSearch);
   }, [syncIngestions, merchants, syncSearch]);
 
-  const endpointLabel = useMemo(() => {
-    const trimmed = apiBaseUrl.trim();
-    if (!trimmed) return "—";
-    try {
-      return new URL(trimmed).host;
-    } catch {
-      return trimmed;
-    }
-  }, [apiBaseUrl]);
+  useEffect(() => {
+    void (async () => {
+      if (!adminSession) {
+        setAuthChecked(true);
+        return;
+      }
+      try {
+        const response = await portalFetch<{ user: PortalAdminUser; sessionExpiresAt: string }>(
+          "/admin/auth/me",
+          undefined,
+          adminSession
+        );
+        setPortalAdmin(response.user);
+        setSessionExpiresAt(response.sessionExpiresAt);
+      } catch {
+        setAdminSession("");
+        setPortalAdmin(null);
+      } finally {
+        setAuthChecked(true);
+      }
+    })();
+    // Validate stored session once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  async function portalFetch<T>(path: string, init?: RequestInit): Promise<T> {
-    const base = apiBaseUrl.trim().replace(/\/+$/, "");
+  useEffect(() => {
+    if (connectionReady) {
+      void refreshAll({ silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionReady]);
+
+  async function portalFetch<T>(
+    path: string,
+    init?: RequestInit,
+    sessionOverride?: string
+  ): Promise<T> {
+    const base = API_BASE_URL;
     if (!base) throw new Error("Set API URL.");
-    if (!apiToken.trim()) throw new Error("Set bearer token.");
+    const session = sessionOverride || adminSession || sessionStorage.getItem(ADMIN_SESSION_KEY) || "";
+    if (!session) throw new Error("Sign in required.");
 
     const hasBody = init?.body !== undefined && init?.body !== null;
     const response = await fetch(`${base}${path}`, {
       ...init,
       headers: {
-        Authorization: `Bearer ${apiToken.trim()}`,
+        "X-Admin-Session": session,
         ...(hasBody ? { "Content-Type": "application/json" } : {}),
         ...(init?.headers ?? {}),
       },
     });
 
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (response.status === 401) {
+      setAdminSession("");
+      setPortalAdmin(null);
+      throw new Error(body?.error || "Session expired. Sign in again.");
+    }
     if (!response.ok) {
       throw new Error(body?.error || `Request failed (${response.status}).`);
     }
     return body as T;
+  }
+
+  async function handleLogin(username: string, password: string) {
+    const base = API_BASE_URL;
+    if (!base) {
+      setLoginError("Set API URL.");
+      return;
+    }
+    setBusy(true);
+    setLoginError("");
+    try {
+      const response = await fetch(`${base}/admin/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        sessionToken?: string;
+        sessionExpiresAt?: string;
+        user?: PortalAdminUser;
+      } | null;
+      if (!response.ok || !body?.sessionToken || !body.user || !body.sessionExpiresAt) {
+        throw new Error(body?.error || `Sign in failed (${response.status}).`);
+      }
+      setAdminSession(body.sessionToken);
+      setPortalAdmin(body.user);
+      setSessionExpiresAt(body.sessionExpiresAt);
+      storeSessionExpiry(body.sessionExpiresAt);
+      setMessageTone("success");
+      setMessage(`Signed in as ${body.user.displayName}.`);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Sign in failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLogout(expiredMessage?: string) {
+    setBusy(true);
+    try {
+      if (adminSession) {
+        await portalFetch("/admin/auth/logout", { method: "POST" });
+      }
+    } catch {
+      // Ignore logout errors and clear local session anyway.
+    } finally {
+      setAdminSession("");
+      setPortalAdmin(null);
+      setSessionExpiresAt(null);
+      storeSessionExpiry(null);
+      setOverview(null);
+      setMerchants([]);
+      setOperators([]);
+      setPortalUsers([]);
+      setActivationCodes([]);
+      setLeases([]);
+      setSyncIngestions([]);
+      setAuditLog([]);
+      setMessage(expiredMessage ?? "");
+      setMessageTone(expiredMessage ? "error" : "neutral");
+      setBusy(false);
+    }
+  }
+
+  const handleSessionExpired = useCallback(() => {
+    void handleLogout("Your session expired. Sign in again.");
+  }, [adminSession]);
+
+  async function handleExtendSession() {
+    const response = await portalFetch<{ sessionExpiresAt: string }>("/admin/auth/refresh", {
+      method: "POST",
+    });
+    setSessionExpiresAt(response.sessionExpiresAt);
+    storeSessionExpiry(response.sessionExpiresAt);
+    setMessageTone("success");
+    setMessage("Session extended.");
   }
 
   async function refreshAll(options?: { silent?: boolean }) {
@@ -328,14 +517,34 @@ function App() {
       setMessage("Refreshing…");
     }
     try {
-      const [overviewRes, merchantsRes, operatorsRes, activationRes, leasesRes, syncRes] = await Promise.all([
+      const requests: Promise<unknown>[] = [
         portalFetch<{ overview: Overview }>("/admin/overview"),
         portalFetch<{ merchants: Merchant[] }>("/admin/merchants"),
         portalFetch<{ operators: Operator[] }>("/admin/operators"),
         portalFetch<{ activationCodes: ActivationCode[] }>("/admin/activation-codes?limit=25"),
         portalFetch<{ leases: Lease[] }>("/admin/offline-leases?limit=25"),
         portalFetch<{ syncIngestions: SyncIngestion[] }>("/admin/sync-ingestions?limit=100"),
-      ]);
+        portalFetch<{ auditLog: AuditLogEntry[]; hasMore: boolean; nextBefore: string | null }>(
+          `/admin/audit-log?limit=${AUDIT_PAGE_SIZE}`
+        ),
+        portalFetch<{ summary: SecuritySummary }>("/admin/security-summary"),
+      ];
+      if (isSuperAdmin) {
+        requests.push(portalFetch<{ portalUsers: PortalUser[] }>("/admin/portal-users"));
+      }
+
+      const results = await Promise.all(requests);
+      const [overviewRes, merchantsRes, operatorsRes, activationRes, leasesRes, syncRes, auditRes, securityRes] =
+        results as [
+        { overview: Overview },
+        { merchants: Merchant[] },
+        { operators: Operator[] },
+        { activationCodes: ActivationCode[] },
+        { leases: Lease[] },
+        { syncIngestions: SyncIngestion[] },
+        { auditLog: AuditLogEntry[]; hasMore: boolean; nextBefore: string | null },
+        { summary: SecuritySummary },
+      ];
 
       setOverview(overviewRes.overview);
       setMerchants(merchantsRes.merchants);
@@ -343,6 +552,13 @@ function App() {
       setActivationCodes(activationRes.activationCodes);
       setLeases(leasesRes.leases);
       setSyncIngestions(syncRes.syncIngestions);
+      setAuditLog(auditRes.auditLog);
+      setAuditHasMore(auditRes.hasMore);
+      setAuditNextBefore(auditRes.nextBefore);
+      setSecuritySummary(securityRes.summary);
+      if (isSuperAdmin && results[8]) {
+        setPortalUsers((results[8] as { portalUsers: PortalUser[] }).portalUsers);
+      }
       if (!options?.silent) {
         setMessageTone("success");
         setMessage("Data refreshed.");
@@ -352,6 +568,58 @@ function App() {
         setMessageTone("error");
         setMessage(error instanceof Error ? error.message : "Refresh failed.");
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadMoreAudit() {
+    if (!auditHasMore || !auditNextBefore || busy) return;
+    setBusy(true);
+    try {
+      const response = await portalFetch<{
+        auditLog: AuditLogEntry[];
+        hasMore: boolean;
+        nextBefore: string | null;
+      }>(`/admin/audit-log?limit=${AUDIT_PAGE_SIZE}&before=${encodeURIComponent(auditNextBefore)}`);
+      setAuditLog((current) => [...current, ...response.auditLog]);
+      setAuditHasMore(response.hasMore);
+      setAuditNextBefore(response.nextBefore);
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Could not load more audit events.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function exportVisibleAuditCsv() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCsv(`sepela-portal-audit-visible-${stamp}.csv`, auditEntriesToCsv(filteredAuditLog));
+    setMessageTone("success");
+    setMessage(`Exported ${filteredAuditLog.length} visible audit events.`);
+  }
+
+  async function exportAllAuditCsv() {
+    setBusy(true);
+    try {
+      const base = API_BASE_URL;
+      const session = adminSession || sessionStorage.getItem(ADMIN_SESSION_KEY) || "";
+      const response = await fetch(`${base}/admin/audit-log/export?limit=2000`, {
+        headers: { "X-Admin-Session": session },
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || `Export failed (${response.status}).`);
+      }
+      const csv = await response.text();
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadCsv(`sepela-portal-audit-${stamp}.csv`, csv);
+      setMessageTone("success");
+      setMessage("Audit log exported.");
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Export failed.");
     } finally {
       setBusy(false);
     }
@@ -514,7 +782,7 @@ function App() {
 
   async function handleEditSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editDraft) return;
+    if (!editDraft || !canWrite) return;
 
     await runManagedAction(async () => {
       if (editDraft.kind === "merchant") {
@@ -571,9 +839,37 @@ function App() {
             branchCode: (editDraft.branchCode ?? "").trim() || null,
           }),
         });
+      } else if (editDraft.kind === "portal_user") {
+        await portalFetch(`/admin/portal-users/${editDraft.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            displayName: (editDraft.displayName ?? "").trim(),
+            role: editDraft.role ?? "admin",
+            status: editDraft.status,
+            ...(editDraft.password && editDraft.password.trim() ? { password: editDraft.password } : {}),
+          }),
+        });
       }
       setEditDraft(null);
     }, "Saved.");
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="app-shell">
+        <p className="toast neutral">Checking session…</p>
+      </div>
+    );
+  }
+
+  if (!portalAdmin) {
+    return (
+      <LoginScreen
+        busy={busy}
+        error={loginError}
+        onLogin={handleLogin}
+      />
+    );
   }
 
   return (
@@ -588,7 +884,7 @@ function App() {
         </div>
 
         <nav className="tab-nav" aria-label="Sections">
-          {TABS.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab}
               type="button"
@@ -601,12 +897,16 @@ function App() {
         </nav>
 
         <div className="topbar-actions">
-          <button
-            type="button"
-            className={`ghost-button ${connectionOpen ? "active" : ""}`}
-            onClick={() => setConnectionOpen((open) => !open)}
-          >
-            Connection
+          <span className="session-chip muted">
+            {portalAdmin.displayName} · {portalUserRoleLabel(portalAdmin.role)}
+          </span>
+          <SessionExpiryChip
+            sessionExpiresAt={sessionExpiresAt}
+            onExpired={handleSessionExpired}
+            onExtendSession={handleExtendSession}
+          />
+          <button type="button" className="ghost-button" onClick={() => void handleLogout(undefined)} disabled={busy}>
+            Sign out
           </button>
           <button type="button" className="primary-button" onClick={() => void refreshAll()} disabled={busy}>
             {busy ? "…" : "Refresh"}
@@ -614,31 +914,7 @@ function App() {
         </div>
       </header>
 
-      {connectionOpen ? (
-        <section className="panel connection-panel">
-          <FormGrid>
-            <FormField
-              label="API URL"
-              placeholder="http://localhost:4000"
-              value={apiBaseUrl}
-              onChange={(event) => setApiBaseUrl(event.target.value)}
-            />
-            <FormField
-              label="Bearer token"
-              type="password"
-              placeholder="PORTAL_BEARER_TOKEN"
-              value={apiToken}
-              onChange={(event) => setApiToken(event.target.value)}
-            />
-          </FormGrid>
-          <div className="connection-meta">
-            <StatusPill tone={connectionReady ? "success" : "neutral"}>
-              {connectionReady ? "Ready" : "Incomplete"}
-            </StatusPill>
-            <span className="muted">{endpointLabel}</span>
-          </div>
-        </section>
-      ) : null}
+      {!canWrite ? <ReadOnlyBanner /> : null}
 
       {message ? <p className={`toast ${messageTone}`}>{message}</p> : null}
 
@@ -686,17 +962,19 @@ function App() {
                     {filteredMerchants.length} of {merchants.length} shown
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className={`ghost-button${tenantFormOpen ? " active" : ""}`}
-                  onClick={() => {
-                    setTenantFormOpen((open) => !open);
-                    if (tenantFormOpen) return;
-                    setBranchFormMerchantId(null);
-                  }}
-                >
-                  {tenantFormOpen ? "Close form" : "Add merchant"}
-                </button>
+                <WriteGate allowed={canWrite}>
+                  <button
+                    type="button"
+                    className={`ghost-button${tenantFormOpen ? " active" : ""}`}
+                    onClick={() => {
+                      setTenantFormOpen((open) => !open);
+                      if (tenantFormOpen) return;
+                      setBranchFormMerchantId(null);
+                    }}
+                  >
+                    {tenantFormOpen ? "Close form" : "Add merchant"}
+                  </button>
+                </WriteGate>
               </div>
             }
             filters={
@@ -741,7 +1019,8 @@ function App() {
                       <div className="group-card-expand merchant-expand">
                         <div className="merchant-detail-panel">
                           <div className="nested-toolbar">
-                            <RowActions
+                            <WriteGate allowed={canWrite}>
+                              <RowActions
                               busy={busy}
                               onEdit={() =>
                                 setEditDraft({
@@ -776,6 +1055,8 @@ function App() {
                                 );
                               }}
                             />
+                            </WriteGate>
+                            <WriteGate allowed={canWrite}>
                             <button
                               type="button"
                               className="ghost-button accent-branch"
@@ -789,6 +1070,7 @@ function App() {
                             >
                               Add branch
                             </button>
+                            </WriteGate>
                           </div>
                           <div className="merchant-nested-stack">
                             {merchant.branches.map((branch) => (
@@ -800,7 +1082,8 @@ function App() {
                                     <StatusBadge value={branch.status} />
                                     {branch.city ? <span className="muted">{branch.city}</span> : null}
                                   </div>
-                                  <RowActions
+                                  <WriteGate allowed={canWrite}>
+                                    <RowActions
                                     busy={busy}
                                     onEdit={() =>
                                       setEditDraft({
@@ -834,6 +1117,7 @@ function App() {
                                       );
                                     }}
                                   />
+                                  </WriteGate>
                                 </div>
                                 <div className="branch-device-list">
                                   {branch.devices.length === 0 ? (
@@ -847,7 +1131,8 @@ function App() {
                                             <code>{device.deviceCode}</code>
                                           </p>
                                         </div>
-                                        <RowActions
+                                        <WriteGate allowed={canWrite}>
+                                          <RowActions
                                           busy={busy}
                                           onEdit={() =>
                                             setEditDraft({
@@ -871,6 +1156,7 @@ function App() {
                                             );
                                           }}
                                         />
+                                        </WriteGate>
                                       </div>
                                     ))
                                   )}
@@ -886,7 +1172,7 @@ function App() {
               )}
           </PortalPage>
 
-        {(tenantFormOpen || branchFormMerchant) ? (
+        {canWrite && (tenantFormOpen || branchFormMerchant) ? (
             <>
             <button
               type="button"
@@ -1074,13 +1360,15 @@ function App() {
             head={
               <div className="pane-toolbar">
                 <h2>Accounts</h2>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => setOperatorFormOpen((open) => !open)}
-                >
-                  {operatorFormOpen ? "Hide form" : "Add operator"}
-                </button>
+                <WriteGate allowed={canWrite}>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => setOperatorFormOpen((open) => !open)}
+                  >
+                    {operatorFormOpen ? "Hide form" : "Add operator"}
+                  </button>
+                </WriteGate>
               </div>
             }
             filters={
@@ -1090,7 +1378,7 @@ function App() {
                   onChange={setAccountSearch}
                   placeholder="Search name, username, role, merchant, branch…"
                 />
-                {operatorFormOpen ? (
+                {operatorFormOpen && canWrite ? (
               <form
                 className="inline-form stack"
                 onSubmit={async (event) => {
@@ -1278,6 +1566,7 @@ function App() {
                               {op.branchCode ? `Branch: ${op.branchCode}` : "All branches"}
                             </p>
                           </div>
+                          <WriteGate allowed={canWrite}>
                           <RowActions
                             busy={busy}
                             onEdit={() =>
@@ -1318,6 +1607,7 @@ function App() {
                               );
                             }}
                           />
+                          </WriteGate>
                         </div>
                       ))}
                       </div>
@@ -1333,6 +1623,7 @@ function App() {
             head={
               <div className="pane-toolbar">
                 <h2>Activation codes</h2>
+                <WriteGate allowed={canWrite}>
                 <button
                   type="button"
                   className="ghost-button"
@@ -1340,10 +1631,11 @@ function App() {
                 >
                   {activationFormOpen ? "Hide form" : "Create code"}
                 </button>
+                </WriteGate>
               </div>
             }
             filters={
-              activationFormOpen ? (
+              activationFormOpen && canWrite ? (
               <form className="inline-form stack" onSubmit={handleCreateActivationCode}>
                 <div className="form-grid compact-grid">
                   <label>
@@ -1449,6 +1741,7 @@ function App() {
                         </td>
                         <td>{formatDate(code.expiresAt)}</td>
                         <td>
+                          <WriteGate allowed={canWrite}>
                           <RowActions
                             busy={busy}
                             onEdit={() =>
@@ -1483,6 +1776,7 @@ function App() {
                               );
                             }}
                           />
+                          </WriteGate>
                         </td>
                       </tr>
                     ))
@@ -1498,13 +1792,15 @@ function App() {
             head={
               <div className="pane-toolbar">
                 <h2>Offline leases</h2>
+                <WriteGate allowed={canWrite}>
                 <button type="button" className="ghost-button" onClick={() => setLeaseFormOpen((open) => !open)}>
                   {leaseFormOpen ? "Hide form" : "Issue lease"}
                 </button>
+                </WriteGate>
               </div>
             }
             filters={
-              leaseFormOpen ? (
+              leaseFormOpen && canWrite ? (
               <form className="inline-form stack" onSubmit={handleIssueLease}>
                 <div className="form-grid compact-grid">
                   <label>
@@ -1619,6 +1915,7 @@ function App() {
                           <StatusBadge value={lease.status} />
                         </td>
                         <td>
+                          <WriteGate allowed={canWrite}>
                           <RowActions
                             busy={busy}
                             onEdit={() =>
@@ -1653,6 +1950,7 @@ function App() {
                               );
                             }}
                           />
+                          </WriteGate>
                         </td>
                       </tr>
                     ))
@@ -1662,6 +1960,287 @@ function App() {
             </div>
           </PortalPage>
         )}
+
+        {activeTab === "audit" && (
+          <PortalPage
+            head={
+              <div className="pane-toolbar">
+                <div className="pane-toolbar-title">
+                  <h2>Audit log</h2>
+                  <span className="portal-meta">
+                    {filteredAuditLog.length} shown · {auditLog.length} loaded
+                  </span>
+                </div>
+                <div className="pane-toolbar-actions">
+                  <button type="button" className="ghost-button" onClick={exportVisibleAuditCsv} disabled={busy || filteredAuditLog.length === 0}>
+                    Export visible
+                  </button>
+                  <button type="button" className="ghost-button" onClick={() => void exportAllAuditCsv()} disabled={busy}>
+                    Export CSV
+                  </button>
+                </div>
+              </div>
+            }
+            filters={
+              <>
+                <SearchField
+                  value={auditSearch}
+                  onChange={setAuditSearch}
+                  placeholder="Search action, user, path, IP…"
+                />
+                {securitySummary &&
+                (securitySummary.failedLoginsLastHour >= 5 || securitySummary.securityAlertsLast24h > 0) ? (
+                  <div className="security-alert-banner" role="alert">
+                    <strong>Security notice</strong>
+                    <span>
+                      {securitySummary.failedLoginsLastHour} failed logins in the last hour
+                      {securitySummary.securityAlertsLast24h > 0
+                        ? ` · ${securitySummary.securityAlertsLast24h} spike alert(s) in 24h`
+                        : ""}
+                      {securitySummary.topFailedIps.length > 0
+                        ? ` · Top IP: ${securitySummary.topFailedIps[0].ip} (${securitySummary.topFailedIps[0].count})`
+                        : ""}
+                    </span>
+                  </div>
+                ) : null}
+              </>
+            }
+          >
+            {auditLog.length === 0 ? (
+              <EmptyState text="No audit events yet." />
+            ) : filteredAuditLog.length === 0 ? (
+              <EmptyState text="No audit events match your search." />
+            ) : (
+              <>
+                <div className="table-wrap">
+                  <table className="data-table compact">
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Path</th>
+                        <th>Status</th>
+                        <th>IP</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredAuditLog.map((entry) => (
+                        <tr key={entry.id} className={entry.action === "security_alert" ? "audit-row-alert" : ""}>
+                          <td>{formatDate(entry.createdAt)}</td>
+                          <td>{entry.adminUsername ?? "—"}</td>
+                          <td>
+                            <code>{entry.action}</code>
+                          </td>
+                          <td>
+                            <span className="muted">
+                              {entry.method} {entry.path}
+                            </span>
+                          </td>
+                          <td>
+                            <StatusBadge value={entry.statusCode && entry.statusCode < 400 ? "success" : "FAILED"} />
+                          </td>
+                          <td>{entry.ipAddress ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {auditHasMore ? (
+                  <div className="audit-load-more">
+                    <button type="button" className="ghost-button" onClick={() => void loadMoreAudit()} disabled={busy}>
+                      {busy ? "Loading…" : "Load older events"}
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </PortalPage>
+        )}
+
+        {activeTab === "portal_users" && isSuperAdmin ? (
+          <PortalPage
+            head={
+              <div className="pane-toolbar">
+                <h2>Portal users</h2>
+                {canWrite ? (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => setPortalUserFormOpen((open) => !open)}
+                  >
+                    {portalUserFormOpen ? "Hide form" : "Add portal user"}
+                  </button>
+                ) : null}
+              </div>
+            }
+            filters={
+              <>
+                <SearchField
+                  value={portalUserSearch}
+                  onChange={setPortalUserSearch}
+                  placeholder="Search name, username, role…"
+                />
+                {portalUserFormOpen && canWrite ? (
+                  <form
+                    className="inline-form stack"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      setBusy(true);
+                      try {
+                        const username = portalUserForm.username.trim().toLowerCase();
+                        if (username.length < 2) {
+                          throw new Error("Username must be at least 2 characters.");
+                        }
+                        const availability = await portalFetch<{ available: boolean }>(
+                          `/admin/portal-users/username-available?username=${encodeURIComponent(username)}`
+                        );
+                        if (!availability.available) {
+                          throw new Error(`Username "${username}" is already taken.`);
+                        }
+                        await portalFetch("/admin/portal-users", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            username,
+                            displayName: portalUserForm.displayName.trim(),
+                            password: portalUserForm.password,
+                            role: portalUserForm.role,
+                          }),
+                        });
+                        setPortalUserForm(initialPortalUserForm);
+                        setPortalUserFormOpen(false);
+                        await refreshAll();
+                        setMessageTone("success");
+                        setMessage("Portal user created.");
+                      } catch (error) {
+                        setMessageTone("error");
+                        setMessage(error instanceof Error ? error.message : "Create failed.");
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    <div className="form-grid compact-grid">
+                      <label>
+                        <span>Username</span>
+                        <input
+                          value={portalUserForm.username}
+                          onChange={(event) =>
+                            setPortalUserForm((prev) => ({
+                              ...prev,
+                              username: event.target.value.toLowerCase().replace(/\s+/g, ""),
+                            }))
+                          }
+                          autoComplete="off"
+                          minLength={2}
+                          required
+                        />
+                      </label>
+                      <label>
+                        <span>Display name</span>
+                        <input
+                          value={portalUserForm.displayName}
+                          onChange={(event) =>
+                            setPortalUserForm((prev) => ({ ...prev, displayName: event.target.value }))
+                          }
+                          required
+                        />
+                      </label>
+                      <label>
+                        <span>Role</span>
+                        <select
+                          value={portalUserForm.role}
+                          onChange={(event) =>
+                            setPortalUserForm((prev) => ({ ...prev, role: event.target.value }))
+                          }
+                        >
+                          {PORTAL_USER_ROLES.map((role) => (
+                            <option key={role.value} value={role.value}>
+                              {role.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Password</span>
+                        <input
+                          type="password"
+                          value={portalUserForm.password}
+                          onChange={(event) =>
+                            setPortalUserForm((prev) => ({ ...prev, password: event.target.value }))
+                          }
+                          minLength={6}
+                          required
+                        />
+                      </label>
+                    </div>
+                    <button type="submit" className="primary-button" disabled={busy}>
+                      Create
+                    </button>
+                  </form>
+                ) : null}
+              </>
+            }
+          >
+            {portalUsers.length === 0 ? (
+              <EmptyState text="No portal users." />
+            ) : filteredPortalUsers.length === 0 ? (
+              <EmptyState text="No portal users match your search." />
+            ) : (
+              <div className="group-card-expand">
+                {filteredPortalUsers.map((user) => (
+                  <div key={user.id} className="group-item">
+                    <div>
+                      <strong>{user.displayName}</strong>
+                      <p>
+                        <code>@{user.username}</code> · <StatusBadge value={user.status} /> ·{" "}
+                        {portalUserRoleLabel(user.role)}
+                      </p>
+                      <p className="muted">
+                        Last login: {user.lastLoginAt ? formatDate(user.lastLoginAt) : "Never"}
+                      </p>
+                    </div>
+                    {canWrite ? (
+                      <RowActions
+                        busy={busy}
+                        onEdit={() =>
+                          setEditDraft({
+                            kind: "portal_user",
+                            id: user.id,
+                            name: "",
+                            status: user.status,
+                            city: "",
+                            countryCode: "",
+                            label: "",
+                            deviceCode: "",
+                            maxDevices: "1",
+                            expiresAt: "",
+                            username: user.username,
+                            displayName: user.displayName,
+                            role: user.role,
+                            password: "",
+                          })
+                        }
+                        onDelete={() => {
+                          if (user.id === portalAdmin.id) {
+                            setMessageTone("error");
+                            setMessage("You cannot delete your own account.");
+                            return;
+                          }
+                          if (!confirmDelete(`${user.displayName} (@${user.username})`)) return;
+                          void runManagedAction(
+                            () => portalFetch(`/admin/portal-users/${user.id}`, { method: "DELETE" }),
+                            "Portal user deleted."
+                          );
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </PortalPage>
+        ) : null}
 
         {activeTab === "sync" && (
           <PortalPage
@@ -1763,6 +2342,7 @@ function App() {
         )}
       </main>
 
+      {canWrite && editDraft ? (
       <ManageModal
         title={
           editDraft?.kind === "merchant"
@@ -1958,13 +2538,67 @@ function App() {
             />
           </FormGrid>
         ) : null}
+
+        {editDraft?.kind === "portal_user" ? (
+          <FormGrid>
+            <FormField label="Username" value={editDraft.username ?? ""} readOnly />
+            <FormField
+              label="Display name"
+              required
+              value={editDraft.displayName ?? ""}
+              onChange={(event) =>
+                setEditDraft((prev) =>
+                  prev ? { ...prev, displayName: event.target.value } : prev
+                )
+              }
+            />
+            <FormField
+              as="select"
+              label="Role"
+              value={editDraft.role ?? "admin"}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, role: event.target.value } : prev))
+              }
+            >
+              {PORTAL_USER_ROLES.map((role) => (
+                <option key={role.value} value={role.value}>
+                  {role.label}
+                </option>
+              ))}
+            </FormField>
+            <FormField
+              as="select"
+              label="Status"
+              value={editDraft.status}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, status: event.target.value } : prev))
+              }
+            >
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="INACTIVE">INACTIVE</option>
+            </FormField>
+            <FormField
+              label="New password (optional)"
+              type="password"
+              value={editDraft.password ?? ""}
+              onChange={(event) =>
+                setEditDraft((prev) => (prev ? { ...prev, password: event.target.value } : prev))
+              }
+            />
+          </FormGrid>
+        ) : null}
       </ManageModal>
+      ) : null}
     </div>
   );
 }
 
 function roleLabel(role: string) {
   return OPERATOR_ROLES.find((entry) => entry.value === role)?.label ?? role;
+}
+
+function portalUserRoleLabel(role: string) {
+  return PORTAL_USER_ROLES.find((entry) => entry.value === role)?.label ?? role;
 }
 
 function EmptyState({ text }: { text: string }) {
@@ -1983,10 +2617,6 @@ function StatusBadge({ value }: { value: string }) {
         ? "error"
         : "neutral";
   return <span className={`status-badge ${tone}`}>{value}</span>;
-}
-
-function StatusPill({ tone, children }: { tone: "success" | "neutral" | "brand"; children: ReactNode }) {
-  return <span className={`status-pill ${tone}`}>{children}</span>;
 }
 
 function SyncBucket({ title, buckets }: { title: string; buckets: SyncBuckets }) {

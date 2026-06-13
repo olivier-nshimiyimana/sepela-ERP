@@ -6,7 +6,7 @@ export const SYNC_STATUS = {
   FAILED: "FAILED",
 };
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 11;
 
 export const CREATE_TABLES_SQL = [
   `CREATE TABLE IF NOT EXISTS app_meta (
@@ -74,6 +74,7 @@ export const CREATE_TABLES_SQL = [
     refund_restore_stock INTEGER,
     refund_by_user_id TEXT,
     refund_by_user_name TEXT,
+    notes TEXT,
     updated_at TEXT NOT NULL,
     sync_status TEXT NOT NULL DEFAULT 'PENDING'
   )`,

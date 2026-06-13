@@ -14,6 +14,17 @@ const envSchema = z.object({
     .default(
       "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173,http://localhost:1420,http://127.0.0.1:1420"
     ),
+  PORTAL_BOOTSTRAP_ADMIN_USERNAME: z.string().min(2).max(80).optional(),
+  PORTAL_BOOTSTRAP_ADMIN_PASSWORD: z.string().min(6).max(200).optional(),
+  PORTAL_SECURITY_WEBHOOK_URL: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : undefined;
+    }),
+  LOGIN_SPIKE_THRESHOLD: z.coerce.number().int().positive().default(5),
+  LOGIN_SPIKE_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
 });
 
 const parsed = envSchema.parse(process.env);

@@ -125,12 +125,18 @@ export async function fetchMerchantBranchesOnCloud(
 
 export async function fetchSalesReportOnCloud(
   apiBaseUrl,
-  { merchantCode, branchCode, period },
+  { merchantCode, branchCode, period, dateFrom, dateTo },
   options = {}
 ) {
   const base = String(apiBaseUrl ?? "").trim().replace(/\/+$/, "");
-  const params = new URLSearchParams({ merchantCode, period });
+  const params = new URLSearchParams({ merchantCode });
   if (branchCode) params.set("branchCode", branchCode);
+  if (dateFrom && dateTo) {
+    params.set("dateFrom", dateFrom);
+    params.set("dateTo", dateTo);
+  } else if (period) {
+    params.set("period", period);
+  }
   const response = await fetch(`${base}/reports/sales-summary?${params.toString()}`, {
     method: "GET",
     headers: buildSessionHeaders(options.apiToken, options.sessionToken, false),

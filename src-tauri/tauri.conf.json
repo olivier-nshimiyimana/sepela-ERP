@@ -14,9 +14,12 @@
       {
         "label": "main",
         "title": "Sepela ERP",
-        "width": 1280,
-        "height": 800,
-        "zoomHotkeysEnabled": false
+        "theme": "Light",
+        "width": 1366,
+        "height": 768,
+        "maximized": true,
+        "zoomHotkeysEnabled": false,
+        "backgroundColor": "#1A1A1A"
       }
     ],
     "security": {
@@ -54,7 +57,7 @@
         },
         "installerIcon": "icons/icon.ico",
         "installerHooks": "./windows/hooks.nsh",
-        "startMenuFolder": "SEPELA INC"
+        "startMenuFolder": "Sepela Inc."
       },
       "wix": {
         "language": ["en-US", "fr-FR"]

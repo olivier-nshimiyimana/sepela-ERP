@@ -1,12 +1,62 @@
 {
+
   "$schema": "../gen/schemas/desktop-schema.json",
+
   "identifier": "default",
+
   "description": "Capability for the main window",
+
   "windows": ["main"],
+
   "permissions": [
+
     "core:default",
+
     "opener:default",
+    "opener:allow-reveal-item-in-dir",
+    "opener:allow-open-url",
+
+    "dialog:default",
+
+    "fs:default",
+
+    "fs:allow-write-file",
+
+    "fs:scope-home-recursive",
+
+    "fs:scope-download-recursive",
+
+    "fs:scope-desktop-recursive",
+
+    "fs:scope-document-recursive",
+    "fs:scope-appdata-recursive",
+    "fs:allow-mkdir",
+
+    {
+
+      "identifier": "fs:allow-write-file",
+
+      "allow": [
+
+        { "path": "$HOME/**" },
+
+        { "path": "$DOWNLOAD/**" },
+
+        { "path": "$DESKTOP/**" },
+
+        { "path": "$DOCUMENT/**" },
+
+        { "path": "$APPDATA/**" }
+
+      ]
+
+    },
+
     "sql:default",
+
     "sql:allow-execute"
+
   ]
+
 }
+

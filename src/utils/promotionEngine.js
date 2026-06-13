@@ -2,6 +2,8 @@ import {
   PROMOTION_DISCOUNT_TYPE,
   PROMOTION_TARGET_SCOPE,
 } from "../db/promotions";
+import { buyXGetYFreeQty, cartLineNetUsd, cartSubtotalNetUsd } from "./cartDiscount";
+import { percentOfUsd, roundUsd, sumUsd } from "./moneyRounding";
 
 function parseTime(value) {
   const ts = new Date(String(value ?? ""));
@@ -137,22 +139,27 @@ export function promotionQualifyingSubtotalUsd(promotion, cart = [], products = 
 }
 
 function lineSubtotalUsd(line) {
-  const price = Number(line?.price ?? 0);
-  const qty = Math.max(0, parseInt(line?.qty, 10) || 0);
-  return price * qty;
+  return cartLineNetUsd(line);
 }
 
-function calcLineDiscountUsd(promotion, lineSubtotal) {
-  const subtotal = Math.max(0, Number(lineSubtotal) || 0);
+function calcLineDiscountUsd(promotion, line) {
+  const subtotal = Math.max(0, Number(lineSubtotalUsd(line)) || 0);
   if (subtotal <= 0) return 0;
 
   const value = Number(promotion.discountValue) || 0;
   if (promotion.discountType === PROMOTION_DISCOUNT_TYPE.PERCENTAGE) {
     const pct = Math.min(100, Math.max(0, value));
-    return Math.min(subtotal, (subtotal * pct) / 100);
+    return roundUsd(Math.min(subtotal, percentOfUsd(subtotal, pct)));
   }
   if (promotion.discountType === PROMOTION_DISCOUNT_TYPE.FIXED_AMOUNT) {
-    return Math.min(subtotal, Math.max(0, value));
+    return roundUsd(Math.min(subtotal, Math.max(0, value)));
+  }
+  if (promotion.discountType === PROMOTION_DISCOUNT_TYPE.BUY_X_GET_Y) {
+    const buyQty = Math.max(1, Math.floor(value));
+    const freeQty = Math.max(1, Math.floor(Number(promotion.discountFreeQty) || 0));
+    const qty = Math.max(0, parseInt(line.qty, 10) || 0);
+    const price = roundUsd(line.price);
+    return roundUsd(buyXGetYFreeQty(qty, buyQty, freeQty) * price);
   }
   return 0;
 }
@@ -181,7 +188,7 @@ export function evaluateCartPromotions({
   now = new Date(),
 }) {
   const productById = new Map(products.map((product) => [product.id, product]));
-  const cartSubtotalUsd = cart.reduce((sum, line) => sum + lineSubtotalUsd(line), 0);
+  const cartSubtotalUsd = cartSubtotalNetUsd(cart);
 
   const evalLines = cartLinesForPromotionEval(cart);
 
@@ -200,7 +207,7 @@ export function evaluateCartPromotions({
       if (!promotionAppliesToCartLine(promotion, line, productById)) {
         continue;
       }
-      const discountUSD = calcLineDiscountUsd(promotion, subtotal);
+      const discountUSD = calcLineDiscountUsd(promotion, line);
       if (!best || discountUSD > best.discountUSD) {
         best = {
           promotionId: promotion.id,
@@ -221,15 +228,15 @@ export function evaluateCartPromotions({
     };
   });
 
-  const totalDiscountUSD = lineResults.reduce((sum, row) => sum + row.discountUSD, 0);
+  const totalDiscountUSD = sumUsd(lineResults.map((row) => row.discountUSD));
   const appliedPromotionIds = [
     ...new Set(lineResults.map((row) => row.appliedPromotion?.promotionId).filter(Boolean)),
   ];
 
   return {
-    cartSubtotalUSD: cartSubtotalUsd,
+    cartSubtotalUSD: roundUsd(cartSubtotalUsd),
     totalDiscountUSD,
-    totalAfterDiscountUSD: Math.max(0, cartSubtotalUsd - totalDiscountUSD),
+    totalAfterDiscountUSD: roundUsd(Math.max(0, cartSubtotalUsd - totalDiscountUSD)),
     lineResults,
     appliedPromotionIds,
   };

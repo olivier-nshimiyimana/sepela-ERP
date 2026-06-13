@@ -1,9 +1,20 @@
-import { useState } from "react";
-import { LogIn } from "lucide-react";
-import startupBackground from "../../sepela-erp-background.png";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, Power } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import SepelaLoginMark from "./SepelaLoginMark";
+import { PLATFORM_COMPANY_NAME } from "../data/platformBranding";
+import { isTauriRuntime } from "../db/client";
 import { useLocale } from "../contexts/LocaleContext";
 
 const Box = "d" + "iv";
+
+async function exitApplication() {
+  if (isTauriRuntime()) {
+    await getCurrentWindow().close();
+    return;
+  }
+  window.close();
+}
 
 export default function LoginScreen({ onLogin, ready }) {
   const { t, tError } = useLocale();
@@ -11,9 +22,18 @@ export default function LoginScreen({ onLogin, ready }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showForgotHint, setShowForgotHint] = useState(false);
+  const [blockAutofill, setBlockAutofill] = useState(true);
+  const passwordRef = useRef(null);
+  const usernameRef = useRef(null);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    const id = window.setTimeout(() => setBlockAutofill(false), 120);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  const submit = async () => {
+    if (!ready || loading) return;
     setError("");
     setLoading(true);
     const result = await onLogin(username, password);
@@ -21,69 +41,137 @@ export default function LoginScreen({ onLogin, ready }) {
     if (!result.ok) setError(result.error);
   };
 
-  return (
-    <Box
-      className="min-h-screen flex items-center justify-center p-6 font-sans bg-center bg-cover bg-no-repeat"
-      style={{
-        backgroundImage: `radial-gradient(circle at 50% 45%, rgba(8, 17, 33, 0.2) 0%, rgba(4, 9, 19, 0.72) 58%, rgba(2, 5, 10, 0.9) 100%), linear-gradient(rgba(5, 8, 14, 0.62), rgba(5, 8, 14, 0.62)), url(${startupBackground})`,
-      }}
-    >
-      <Box className="w-full max-w-[520px] bg-[#111820]/86 border border-[#2a3442] rounded-2xl shadow-[0_24px_80px_rgba(1,6,18,0.65)] overflow-hidden backdrop-blur-sm">
-        <Box className="px-7 py-6 border-b border-[#273345] text-center">
-          <h1 className="text-[34px] leading-none font-extrabold tracking-tight text-blue-500">
-            SEPELA <span className="text-white">INC</span>
-          </h1>
-          <p className="text-[#7e8796] text-[18px] leading-tight font-light mt-2">{t("login.signIn")}</p>
-        </Box>
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    await submit();
+  };
 
-        <form onSubmit={handleSubmit} className="px-7 py-6 space-y-4">
-          <Box className="space-y-2">
-            <label className="text-[13px] font-bold text-[#7f8a99] uppercase tracking-[0.22em]">
-              {t("login.username")}
-            </label>
+  const handleUsernameKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      passwordRef.current?.focus();
+    }
+  };
+
+  return (
+    <Box className="sepela-login">
+      <button
+        type="button"
+        className="sepela-login__power"
+        onClick={() => void exitApplication()}
+        aria-label={t("login.exitApp")}
+        title={t("login.exitApp")}
+      >
+        <Power size={22} strokeWidth={1.75} />
+      </button>
+
+      <Box className="sepela-login__center">
+        <SepelaLoginMark size={76} />
+
+        <h1 className="sepela-login__brand">{PLATFORM_COMPANY_NAME}</h1>
+
+        <p className="sepela-login__title">{t("login.title")}</p>
+
+        <form
+          onSubmit={handleSubmit}
+          className="sepela-login__form"
+          noValidate
+          autoComplete="off"
+        >
+          <input
+            type="text"
+            name="sepela-login-trap"
+            autoComplete="username"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="sepela-login__trap"
+          />
+          <Box className="sepela-login__field">
             <input
+              ref={usernameRef}
               autoFocus
               type="text"
-              autoComplete="username"
+              name="sepela-operator-id"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              readOnly={blockAutofill}
               disabled={!ready || loading}
-              className="w-full h-12 bg-[#0c121a]/95 border border-[#2a3341] rounded-xl px-4 text-[17px] text-white focus:border-blue-500 outline-none disabled:opacity-50"
+              className="sepela-input sepela-login__input"
+              placeholder={t("login.usernamePlaceholder")}
+              aria-label={t("login.username")}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={handleUsernameKeyDown}
+              onFocus={(e) => {
+                setBlockAutofill(false);
+                e.target.removeAttribute("readonly");
+              }}
             />
           </Box>
-          <Box className="space-y-2">
-            <label className="text-[13px] font-bold text-[#7f8a99] uppercase tracking-[0.22em]">
-              {t("login.password")}
-            </label>
+
+          <Box className="sepela-login__field sepela-login__field--submit">
             <input
+              ref={passwordRef}
               type="password"
-              autoComplete="current-password"
+              name="sepela-operator-secret"
+              autoComplete="new-password"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              readOnly={blockAutofill}
               disabled={!ready || loading}
-              className="w-full h-12 bg-[#0c121a]/95 border border-[#2a3341] rounded-xl px-4 text-[17px] text-white focus:border-blue-500 outline-none disabled:opacity-50"
+              className="sepela-input sepela-login__input"
+              placeholder={t("login.passwordPlaceholder")}
+              aria-label={t("login.password")}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onFocus={(e) => {
+                setBlockAutofill(false);
+                e.target.removeAttribute("readonly");
+              }}
             />
+            <button
+              type="submit"
+              disabled={!ready || loading}
+              className="sepela-login__submit"
+              aria-label={loading ? t("login.signingIn") : t("login.signIn")}
+              title={loading ? t("login.signingIn") : t("login.signIn")}
+            >
+              <ArrowRight size={22} strokeWidth={2} />
+            </button>
           </Box>
 
-          {error ? <p className="text-red-400 text-sm">{tError(error)}</p> : null}
+          {error ? (
+            <p className="sepela-login__error" role="alert">
+              {tError(error)}
+            </p>
+          ) : null}
 
-          <button
-            type="submit"
-            disabled={!ready || loading}
-            className="w-full h-12 flex items-center justify-center gap-2 bg-[#1267f5] hover:bg-[#1e73ff] disabled:bg-gray-800 rounded-xl text-[20px] leading-none font-black uppercase tracking-[0.14em] transition-colors"
-          >
-            <LogIn size={20} />
-            {loading ? t("login.signingIn") : t("login.signIn")}
-          </button>
+          {loading ? (
+            <p className="sepela-login__status">{t("login.signingIn")}</p>
+          ) : null}
         </form>
 
-        <Box className="px-7 pb-8 text-[11px] text-[#7f8a99] text-center">
-          <p>
-            {t("login.support")}{" "}
-            <span className="text-gray-300">{t("login.supportCompany")}</span>
-            {t("login.supportSuffix") ? ` ${t("login.supportSuffix")}` : ""}
-          </p>
-        </Box>
+        <button
+          type="button"
+          className="sepela-login__forgot"
+          onClick={() => setShowForgotHint((v) => !v)}
+        >
+          {t("login.forgotPassword")}
+        </button>
+
+        {showForgotHint ? (
+          <Box className="sepela-login__support">
+            <p>{t("login.forgotPasswordHint")}</p>
+            <p>
+              {t("login.support")}{" "}
+              <span className="sepela-login__support-name">{t("login.supportCompany")}</span>
+              {t("login.supportSuffix") ? ` ${t("login.supportSuffix")}` : ""}
+            </p>
+          </Box>
+        ) : null}
       </Box>
     </Box>
   );

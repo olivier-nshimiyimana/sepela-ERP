@@ -43,6 +43,7 @@ export default function ProductGrid({
   exchangeRate,
   primaryCurrency,
   expiryAlertDays,
+  cartProductIds = new Set(),
   onAdd,
 }) {
   const { t } = useLocale();
@@ -50,55 +51,58 @@ export default function ProductGrid({
 
   if (filtered.length === 0) {
     return (
-      <p className="text-center text-gray-600 text-xs py-8 px-2">
+      <p className="text-center sepela-hint text-xs py-8 px-2">
         {t("products.noProducts")}
       </p>
     );
   }
 
   return (
-    <ul className="flex flex-col w-full divide-y divide-gray-800/80">
+    <ul className="flex flex-col w-full">
       {filtered.map((product) => {
         const sellable = isProductSellable(product, expiryAlertDays);
         const meta = productLineMeta(product, expiryAlertDays, t);
         const priceDual = formatDualCurrency(product.price, exchangeRate, primaryCurrency);
+        const inCart = cartProductIds.has(product.id);
 
         return (
-          <li key={product.id}>
+          <li key={product.id} className="shadow-[inset_0_-1px_0_#383838]">
             <button
               type="button"
               disabled={!sellable}
               onClick={() => onAdd(product)}
               title={`${product.name} — ${priceDual.primary} (≈ ${priceDual.secondary}) — ${meta.stockPart}`}
-              className={`w-full px-2 py-2.5 text-left text-xs leading-snug transition-colors ${
+              className={`pos-product-btn w-full text-left transition-colors ${
                 !sellable
-                  ? "opacity-50 cursor-not-allowed text-gray-500"
-                  : "text-gray-200 hover:bg-[#252525] hover:text-white"
+                  ? "opacity-50 cursor-not-allowed text-sepela-muted"
+                  : inCart
+                    ? "pos-product-btn--in-cart text-white"
+                    : "text-white hover:bg-[#353535]"
               }`}
             >
               <span className="block truncate">
                 <HighlightText text={product.name} searchTerm={searchTerm} />
-                <span className="text-gray-500"> · </span>
-                <span className="text-blue-400 font-semibold">{priceDual.primary}</span>
-                <span className="text-gray-500"> · </span>
+                <span className="text-sepela-muted"> · </span>
+                <span className="text-white font-semibold sepela-money">{priceDual.primary}</span>
+                <span className="text-sepela-muted"> · </span>
                 <span
                   className={
                     meta.expired || meta.outOfStock
-                      ? "text-red-400 font-medium"
+                      ? "text-red-400"
                       : meta.lowStock
-                        ? "text-amber-400 font-medium"
-                        : "text-gray-400"
+                        ? "text-amber-400"
+                        : "text-sepela-muted"
                   }
                 >
                   {meta.stockPart}
                 </span>
                 {product.lotNumber && (
                   <>
-                    <span className="text-gray-500"> · {t("pos.lot")} </span>
+                    <span className="sepela-text-secondary"> · {t("pos.lot")} </span>
                     <HighlightText
                       text={product.displayLotNumber || product.lotNumber}
                       searchTerm={searchTerm}
-                      className="text-gray-600"
+                      className="sepela-hint"
                     />
                   </>
                 )}
@@ -106,7 +110,7 @@ export default function ProductGrid({
                   <span className="text-cyan-500/80">{batchSummary(product, t)}</span>
                 )}
                 {meta.expiryPart && (
-                  <span className="text-amber-500/90 font-medium">{meta.expiryPart}</span>
+                  <span className="text-amber-500/90 font-bold">{meta.expiryPart}</span>
                 )}
               </span>
             </button>

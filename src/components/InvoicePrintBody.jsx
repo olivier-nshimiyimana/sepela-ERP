@@ -12,7 +12,9 @@ import {
 } from "../domain/receiptTransaction";
 import {
   saleAppliedPromotionName,
+  saleGrossSubtotalUsd,
   saleItemsSubtotalUsd,
+  saleManualDiscountUsd,
   salePromotionDiscountUsd,
 } from "../utils/saleTotals";
 
@@ -40,7 +42,8 @@ export default function InvoicePrintBody({
       ? t("receipt.proformaPayment")
       : sale.methodLabel ?? paymentMethodLabel(sale.method, locale) ?? "—";
 
-  const subtotalUSD = saleItemsSubtotalUsd(sale);
+  const manualDiscountUSD = saleManualDiscountUsd(sale);
+  const subtotalUSD = manualDiscountUSD > 0.001 ? saleGrossSubtotalUsd(sale) : saleItemsSubtotalUsd(sale);
   const promotionDiscountUSD = salePromotionDiscountUsd(sale);
   const totalUSD = Number(sale.totalUSD) || 0;
   const promotionName = saleAppliedPromotionName(sale, promotions);
@@ -142,6 +145,12 @@ export default function InvoicePrintBody({
             <span>{t("receipt.subtotal")}</span>
             <span className="inv-amount">{currency.formatPrimary(subtotalUSD, saleRate)}</span>
           </div>
+          {manualDiscountUSD > 0.001 ? (
+            <div className="inv-totals-line inv-promo-line">
+              <span>{t("receipt.manualDiscount")}</span>
+              <span className="inv-amount">-{currency.formatPrimary(manualDiscountUSD, saleRate)}</span>
+            </div>
+          ) : null}
           {promotionDiscountUSD > 0.001 ? (
             <div className="inv-totals-line inv-promo-line">
               <span>

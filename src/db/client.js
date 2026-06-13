@@ -54,6 +54,9 @@ export async function runSchemaMigrations(db) {
   await ensureColumn(db, "customers", "address", "TEXT");
   await ensureColumn(db, "customers", "email", "TEXT");
   await ensureColumn(db, "customers", "tax_number", "TEXT");
+  await ensureColumn(db, "sales", "change_due_cdf", "INTEGER DEFAULT 0");
+  await ensureColumn(db, "sales", "amount_received_primary", "INTEGER");
+  await ensureColumn(db, "sales", "notes", "TEXT");
   await migrateInventoryBreakdown(db);
   await migratePromotionsSchema(db, ensureColumn);
   await migrateTenantColumns(db, ensureColumn);

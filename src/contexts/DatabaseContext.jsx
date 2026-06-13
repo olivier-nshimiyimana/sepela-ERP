@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { normalizeProducts, validateProductFields } from "../data/defaultProducts";
 import { DEFAULT_INVOICE_PROFILE, resolveInvoiceProfile } from "../data/defaultInvoiceProfile";
-import { normalizePrimaryCurrency } from "../utils/currency";
+import { normalizePrimaryCurrency, roundUsd, usdToCdf } from "../utils/currency";
+import { roundCdf } from "../utils/moneyRounding";
 import { appError, DEFAULT_LOCALE, normalizeLocale } from "../i18n";
 import { DEFAULT_EXPIRY_ALERT_DAYS } from "../utils/productExpiry";
 import {
@@ -716,6 +717,7 @@ function buildFallbackApi(f) {
     recordPurchase: f.recordPurchase,
     refundSale: f.refundSale,
     incrementCopyIndex: f.incrementCopyIndex,
+    updateSaleNotes: f.updateSaleNotes,
     addProduct: (fields) => {
       const validated = validateProductFields(fields, lang());
       if (!validated.ok) return validated;
@@ -1394,11 +1396,12 @@ function buildSqliteApi(sqlite, refreshSqlite) {
         db,
         `INSERT INTO sales (
           id, invoice_number, timestamp, status, receipt_type, transaction_type, sdc_receipt_code,
-          copy_index, method, method_label, total_usd, total_cdf, change_due_usd, amount_received,
-          reference, card_last_four, cashier_id, cashier_name, customer_id, customer_name, customer_phone,
-          customer_address, customer_email, customer_tax_number, exchange_rate, promotion_discount_usd,
-          applied_promotion_id, merchant_code, updated_at, sync_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          copy_index, method, method_label, total_usd, total_cdf, change_due_usd, change_due_cdf,
+          amount_received, amount_received_primary, reference, card_last_four, cashier_id, cashier_name,
+          customer_id, customer_name, customer_phone, customer_address, customer_email, customer_tax_number,
+          exchange_rate, promotion_discount_usd, manual_discount_usd, applied_promotion_id, merchant_code,
+          updated_at, sync_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           invoiceNumber,
@@ -1410,10 +1413,12 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           0,
           rest.method,
           rest.methodLabel,
-          rest.totalUSD,
-          rest.totalCDF,
-          rest.changeDueUSD ?? 0,
-          rest.amountReceived,
+          roundUsd(rest.totalUSD),
+          usdToCdf(rest.totalUSD, rest.exchangeRate),
+          roundUsd(rest.changeDueUSD ?? 0),
+          roundCdf(rest.changeDueCDF ?? rest.changePrimary ?? 0),
+          roundUsd(rest.amountReceived),
+          rest.amountReceivedPrimary != null ? roundCdf(rest.amountReceivedPrimary) : null,
           rest.reference ?? null,
           rest.cardLastFour ?? null,
           rest.cashierId,
@@ -1425,7 +1430,8 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           rest.customerEmail ?? null,
           rest.customerTaxNumber ?? null,
           rest.exchangeRate,
-          rest.promotionDiscountUSD ?? 0,
+          roundUsd(rest.promotionDiscountUSD ?? 0),
+          roundUsd(rest.manualDiscountUSD ?? 0),
           rest.appliedPromotionId ?? null,
           merchantCode,
           ts,
@@ -1477,10 +1483,13 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           copy_index: 0,
           method: rest.method,
           method_label: rest.methodLabel,
-          total_usd: rest.totalUSD,
-          total_cdf: rest.totalCDF,
-          change_due_usd: rest.changeDueUSD ?? 0,
-          amount_received: rest.amountReceived,
+          total_usd: roundUsd(rest.totalUSD),
+          total_cdf: usdToCdf(rest.totalUSD, rest.exchangeRate),
+          change_due_usd: roundUsd(rest.changeDueUSD ?? 0),
+          change_due_cdf: roundCdf(rest.changeDueCDF ?? rest.changePrimary ?? 0),
+          amount_received: roundUsd(rest.amountReceived),
+          amount_received_primary:
+            rest.amountReceivedPrimary != null ? roundCdf(rest.amountReceivedPrimary) : null,
           reference: rest.reference,
           card_last_four: rest.cardLastFour,
           cashier_id: rest.cashierId,
@@ -1744,6 +1753,20 @@ function buildSqliteApi(sqlite, refreshSqlite) {
         db,
         `UPDATE sales SET copy_index = copy_index + 1, updated_at = ?, sync_status = ? WHERE id = ?`,
         [ts, SYNC_STATUS.PENDING, saleId]
+      );
+      const { merchantCode } = await getActiveTenant(db);
+      await refreshSqlite(db);
+      const fresh = await loadSales(db, merchantCode);
+      return fresh.find((s) => s.id === saleId) ?? null;
+    },
+    updateSaleNotes: async (saleId, notes) => {
+      const db = await getDatabase();
+      const ts = nowIso();
+      const trimmed = String(notes ?? "").trim() || null;
+      await dbExecute(
+        db,
+        `UPDATE sales SET notes = ?, updated_at = ?, sync_status = ? WHERE id = ?`,
+        [trimmed, ts, SYNC_STATUS.PENDING, saleId]
       );
       const { merchantCode } = await getActiveTenant(db);
       await refreshSqlite(db);
@@ -2358,12 +2381,12 @@ function buildSqliteApi(sqlite, refreshSqlite) {
           db,
           `INSERT INTO sales (
             id, invoice_number, timestamp, status, receipt_type, transaction_type, sdc_receipt_code,
-            copy_index, method, method_label, total_usd, total_cdf, change_due_usd, amount_received,
-            reference, card_last_four, cashier_id, cashier_name, customer_id, customer_name, customer_phone,
-            customer_address, customer_email, customer_tax_number, exchange_rate, promotion_discount_usd,
-            applied_promotion_id, merchant_code, refund_at, refund_reason, refund_restore_stock,
-            refund_by_user_id, refund_by_user_name, updated_at, sync_status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            copy_index, method, method_label, total_usd, total_cdf, change_due_usd, change_due_cdf,
+            amount_received, amount_received_primary, reference, card_last_four, cashier_id, cashier_name,
+            customer_id, customer_name, customer_phone, customer_address, customer_email, customer_tax_number,
+            exchange_rate, promotion_discount_usd, manual_discount_usd, applied_promotion_id, merchant_code,
+            refund_at, refund_reason, refund_restore_stock, refund_by_user_id, refund_by_user_name, updated_at, sync_status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             sale.id ?? newEntityId("inv"),
             sale.invoiceNumber ?? sale.id,
@@ -2375,10 +2398,12 @@ function buildSqliteApi(sqlite, refreshSqlite) {
             sale.copyIndex ?? 0,
             sale.method ?? null,
             sale.methodLabel ?? null,
-            sale.totalUSD ?? 0,
-            sale.totalCDF ?? 0,
-            sale.changeDueUSD ?? 0,
-            sale.amountReceived ?? null,
+            roundUsd(sale.totalUSD ?? 0),
+            usdToCdf(sale.totalUSD ?? 0, sale.exchangeRate),
+            roundUsd(sale.changeDueUSD ?? 0),
+            roundCdf(sale.changeDueCDF ?? sale.changePrimary ?? 0),
+            roundUsd(sale.amountReceived),
+            sale.amountReceivedPrimary != null ? roundCdf(sale.amountReceivedPrimary) : null,
             sale.reference ?? null,
             sale.cardLastFour ?? null,
             sale.cashierId ?? null,
@@ -2391,6 +2416,7 @@ function buildSqliteApi(sqlite, refreshSqlite) {
             sale.customerTaxNumber ?? null,
             sale.exchangeRate ?? null,
             sale.promotionDiscountUSD ?? 0,
+            sale.manualDiscountUSD ?? 0,
             sale.appliedPromotionId ?? null,
             activeTenant.merchantCode,
             sale.refund?.at ?? null,

@@ -27,12 +27,12 @@ export default function ExpiryBadge({
 
   return (
     <span
-      className={`inline-block text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${styles[status]}`}
+      className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded border ${styles[status]}`}
       title={formatExpiryDate(expirationDate)}
     >
       {expiryStatusLabel(status, days)}
       {!compact && status !== "missing" && (
-        <span className="normal-case font-normal text-gray-500 ml-1">
+        <span className="font-bold sepela-text-secondary ml-1">
           ({formatExpiryDate(expirationDate)})
         </span>
       )}
